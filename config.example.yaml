@@ -1,0 +1,112 @@
+# Copy this file to config.yaml and edit it. Settings you leave out use the values here.
+# After editing: sudo systemctl restart smart-screen
+
+display:
+  style: photos            # photos = photo slideshow background (regular monitor)
+                           # mirror = black background (for a two-way mirror build)
+  clock_24h: false
+  show_seconds: false
+  greeting: "Good {part_of_day}"   # e.g. "Good morning, Connors family!" - {part_of_day} = morning/afternoon/evening
+  messages:                # one shows at a time, changing every minute; remove all to hide
+    - "Hold up ✌️ for the photo booth"
+    - "👍 lights on · 👎 lights off"
+    - "Make today great"
+  weather:                 # free, no API key (open-meteo.com); delete this block to hide weather
+    latitude: 40.71        # find yours: right-click a spot in Google Maps
+    longitude: -74.01
+    units: fahrenheit      # fahrenheit | celsius
+
+  # Screen sleep. The screen goes dark after this many minutes without a gesture
+  # (0 = never). Raising your hand wakes it up.
+  sleep_after_minutes: 0
+  always_on_hours: "07:00-22:00"   # never sleeps during these hours; "" = no exception
+  wake_on_hand: true
+  # Leave empty to just show a black screen. To really power the monitor off and on (saves
+  # power), use the helper script: deploy/screen.sh off / deploy/screen.sh on
+  screen_off_command: ""
+  screen_on_command: ""
+
+  host: 127.0.0.1          # 0.0.0.0 lets phones on your Wi-Fi open the page and trigger actions
+  port: 8080
+
+slideshow:
+  folders: [backgrounds]   # put your photos in the backgrounds/ folder (subfolders are fine)
+  include_booth_photos: true   # mix photo booth shots into the slideshow
+  seconds_per_photo: 30
+  size: [1920, 1080]       # your screen's resolution; photos are resized to this once and cached
+
+calendar:
+  days_ahead: 7
+  max_events: 10
+  refresh_minutes: 10
+  feeds:                   # as many as you like; see README "Calendar" for how to get the link
+    - name: Family
+      url: "PASTE-SECRET-ICAL-LINK-HERE"
+      color: "#7cc4ff"
+    # - name: Work
+    #   url: "https://outlook.office365.com/owa/calendar/.../calendar.ics"
+    #   color: "#ffb86b"
+
+news:                      # headlines ticker at the bottom; delete the feeds to hide it
+  refresh_minutes: 30
+  per_feed: 5
+  feeds:
+    - name: NYT
+      url: https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml
+    # - name: BBC
+    #   url: https://feeds.bbci.co.uk/news/rss.xml
+
+camera:
+  backend: opencv          # opencv (USB webcam) | picamera2 (Raspberry Pi Camera Module)
+  index: 0                 # which USB camera (opencv only)
+  width: 1920
+  height: 1080
+
+gestures:
+  model_path: models/gesture_recognizer.task
+  min_score: 0.65          # how confident the model must be (0-1)
+  hold_seconds: 0.8        # hold a gesture this long to fire it (stops accidental triggers)
+  cooldown_seconds: 2.5    # wait after an action before another one can fire
+  # Gestures the built-in model knows:
+  #   Open_Palm, Closed_Fist, Pointing_Up, Thumb_Up, Thumb_Down, Victory, ILoveYou
+  # Actions: lights_on, lights_off, lights_toggle, photo_booth, wake, sleep
+  bindings:
+    Thumb_Up: lights_on
+    Thumb_Down: lights_off
+    Pointing_Up: lights_toggle
+    Victory: photo_booth
+    Open_Palm: wake
+    Closed_Fist: sleep
+
+lights:
+  backend: none            # none | home_assistant | hue | webhook
+
+  home_assistant:
+    url: http://homeassistant.local:8123
+    token: "PASTE-A-LONG-LIVED-ACCESS-TOKEN"   # HA profile -> Security -> Long-lived access tokens
+    entity_ids: [light.living_room]
+
+  hue:
+    bridge_ip: 192.168.1.50
+    username: "PASTE-HUE-API-USERNAME"         # see README: "Philips Hue"
+    light_ids: [1, 2]
+
+  webhook:                 # anything with a URL: Shelly, Tasmota, IFTTT, Node-RED, ...
+    method: POST
+    on_url: ""
+    off_url: ""
+
+photobooth:
+  countdown_seconds: 3
+  shots: 4                 # photos per session
+  seconds_between_shots: 2
+  layout: strip            # strip (two 2x6 strips on 4x6 paper) | grid (2x2 on 4x6) | single
+  caption: "Photo Booth"
+  output_dir: photos
+  mirror_preview: true     # live preview on screen works like a mirror (feels natural)
+  mirror_photos: false     # false = prints show the scene the right way round (readable text)
+  screen_flash: true       # screen goes white during each shot = built-in fill light
+  print: true
+  printer: ""              # CUPS printer name; empty = system default (see `lpstat -p`)
+  print_options: ["-o", "fit-to-page"]
+  copies: 1

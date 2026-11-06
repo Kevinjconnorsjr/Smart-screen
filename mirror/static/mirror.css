@@ -1,0 +1,163 @@
+:root {
+  --fg: #fbfbfb;
+  --dim: rgba(255, 255, 255, 0.72);
+  --faint: rgba(255, 255, 255, 0.5);
+  --accent: #ffd36e;
+  --card: rgba(12, 14, 18, 0.48);
+  --card-edge: rgba(255, 255, 255, 0.12);
+  --shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
+  --font: "Inter", "Helvetica Neue", "DejaVu Sans", system-ui, sans-serif;
+  --pad: 3.2vmin;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: #000;
+  color: var(--fg);
+  font-family: var(--font);
+  overflow: hidden;
+  cursor: none;
+  user-select: none;
+  text-shadow: var(--shadow);
+}
+
+/* ---------- slideshow ---------- */
+.bg-wrap { position: fixed; inset: 0; overflow: hidden; }
+.bg {
+  position: absolute; inset: -3%;
+  background: center / cover no-repeat;
+  opacity: 0;
+  transition: opacity 2.5s ease;
+  will-change: opacity, transform;
+}
+.bg.show { opacity: 1; animation: drift 40s ease-out forwards; }
+@keyframes drift { from { transform: scale(1.0) translate(0, 0); } to { transform: scale(1.06) translate(-1%, -0.6%); } }
+.scrim {
+  position: absolute; inset: 0;
+  background:
+    linear-gradient(to bottom, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0) 32%),
+    linear-gradient(to top, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0) 26%),
+    linear-gradient(to right, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0) 40%);
+}
+body.mirror .bg-wrap { display: none; }
+
+/* ---------- layout (landscape grid) ---------- */
+#dash {
+  position: relative;
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "clock   weather"
+    "agenda  ."
+    "footer  footer";
+  gap: var(--pad);
+  padding: var(--pad) calc(var(--pad) * 1.3);
+  transition: opacity 1.2s ease;
+}
+body.busy #dash, body.busy .hold { opacity: 0; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--card-edge);
+  border-radius: 2.2vmin;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  padding: 2.4vmin 2.8vmin;
+}
+
+/* clock */
+.clock { grid-area: clock; }
+.time { font-size: 15vmin; font-weight: 200; line-height: 0.95; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.ampm { font-size: 4.5vmin; font-weight: 300; margin-left: 1.2vmin; letter-spacing: 0; }
+.secs { font-size: 4.5vmin; font-weight: 300; margin-left: 1vmin; color: var(--dim); letter-spacing: 0; }
+.date { font-size: 4vmin; font-weight: 300; margin-top: 1.4vmin; }
+.greeting { font-size: 3vmin; color: var(--dim); margin-top: 0.8vmin; }
+
+/* weather */
+.weather { grid-area: weather; text-align: right; align-self: start; }
+.now { display: flex; align-items: center; justify-content: flex-end; gap: 1.6vmin; }
+.w-icon { font-size: 8vmin; line-height: 1; }
+.temp { font-size: 9vmin; font-weight: 200; line-height: 1; }
+.sky { font-size: 3vmin; color: var(--dim); margin-top: 0.6vmin; }
+.sun { font-size: 2.3vmin; color: var(--faint); margin-top: 0.6vmin; }
+.forecast { list-style: none; margin: 2vmin 0 0; padding: 1.6vmin 0 0; display: flex; gap: 1.2vmin; justify-content: flex-end; border-top: 1px solid var(--card-edge); }
+.forecast li { text-align: center; font-size: 2.3vmin; min-width: 10vmin; }
+.forecast .d { color: var(--dim); }
+.forecast .i { font-size: 3.6vmin; margin: 0.4vmin 0; }
+.forecast .lo { color: var(--faint); margin-left: 0.6vmin; }
+
+/* agenda */
+.agenda { grid-area: agenda; align-self: start; width: min(62vmin, 100%); max-height: 100%; overflow: hidden; }
+.agenda h2 { margin: 0 0 1.4vmin; font-size: 2.2vmin; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); }
+.day { margin-top: 1.6vmin; }
+.day:first-child { margin-top: 0; }
+.day-name { font-size: 2.2vmin; color: var(--accent); font-weight: 600; margin-bottom: 0.6vmin; }
+.event { display: grid; grid-template-columns: 0.6vmin 13vmin 1fr; gap: 1.4vmin; align-items: baseline; font-size: 2.6vmin; padding: 0.45vmin 0; }
+.event .dot { align-self: stretch; border-radius: 1vmin; background: var(--fg); }
+.event .when { color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.event .what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.event.now .what::after { content: "now"; font-size: 1.7vmin; margin-left: 1vmin; padding: 0.15vmin 0.9vmin; border-radius: 1vmin; background: var(--accent); color: #111; text-shadow: none; vertical-align: 0.3vmin; }
+.empty { color: var(--dim); font-size: 2.4vmin; }
+
+/* footer */
+.footer { grid-area: footer; display: flex; justify-content: space-between; align-items: flex-end; gap: 4vmin; }
+.footer-left { min-width: 0; flex: 1; }
+.message { font-size: 3vmin; font-weight: 300; transition: opacity 0.8s ease; }
+.news { font-size: 2.3vmin; color: var(--dim); margin-top: 1vmin; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity 0.8s ease; }
+.news-source { color: var(--accent); font-weight: 600; margin-right: 1.2vmin; }
+.fade { opacity: 0; }
+.footer-right { display: flex; flex-direction: column; align-items: flex-end; gap: 1.2vmin; }
+.pill { font-size: 2.2vmin; color: var(--accent); border: 1px solid currentColor; border-radius: 999px; padding: 0.5vmin 1.8vmin; background: rgba(0,0,0,0.3); }
+.legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.6vmin 2.2vmin; justify-content: flex-end; font-size: 1.9vmin; color: var(--faint); max-width: 96vmin; }
+.legend b { color: var(--fg); font-weight: 500; }
+
+/* gesture hold ring */
+.hold {
+  position: fixed; right: 4vmin; top: 50%; transform: translateY(-50%);
+  width: 14vmin; height: 14vmin; display: grid; place-items: center;
+  background: rgba(0,0,0,0.35); border-radius: 50%;
+}
+.hold svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.hold circle { fill: none; stroke-width: 5; }
+.hold .track { stroke: rgba(255,255,255,0.2); }
+.hold .ring { stroke: var(--accent); stroke-dasharray: 276.5; stroke-dashoffset: 276.5; transition: stroke-dashoffset 0.15s linear; }
+#hold-label { font-size: 5vmin; text-align: center; }
+
+/* photo booth */
+.booth { position: fixed; inset: 0; background: #000; z-index: 5; }
+.preview { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.shot-label { position: absolute; top: 4vmin; left: 0; right: 0; text-align: center; font-size: 4vmin; font-weight: 500; }
+.countdown { position: absolute; inset: 0; display: grid; place-items: center; font-size: 40vmin; font-weight: 200; }
+.countdown.tick { animation: tick 1s ease-out; }
+@keyframes tick { from { transform: scale(1.3); opacity: 1; } to { transform: scale(0.9); opacity: 0.25; } }
+
+.status {
+  position: fixed; left: 50%; bottom: 14vmin; transform: translateX(-50%); z-index: 8;
+  font-size: 3.6vmin; padding: 1.4vmin 4vmin; border-radius: 999px;
+  background: rgba(10,10,10,0.75); border: 1px solid var(--card-edge); backdrop-filter: blur(10px);
+  white-space: nowrap; max-width: 92vw; overflow: hidden; text-overflow: ellipsis;
+}
+
+.photo { position: fixed; inset: 0; margin: 0; display: grid; place-items: center; background: rgba(0,0,0,0.92); z-index: 6; }
+.photo img { max-width: 86vw; max-height: 86vh; box-shadow: 0 0 6vmin rgba(255, 255, 255, 0.2); animation: develop 1.2s ease-out; }
+@keyframes develop { from { opacity: 0; filter: brightness(2.5); } to { opacity: 1; filter: none; } }
+
+/* Full-white screen during capture: lights faces like a soft box. */
+.flash { position: fixed; inset: 0; background: #fff; z-index: 10; }
+
+/* Sleep: fade to black (and optionally the monitor powers off). */
+.night { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; transition: opacity 1.5s ease; z-index: 20; }
+body.asleep .night { opacity: 1; }
+
+[hidden] { display: none !important; }
+
+/* Narrow / portrait screens: stack everything. */
+@media (max-aspect-ratio: 1/1) {
+  #dash { grid-template-columns: 1fr; grid-template-areas: "clock" "weather" "agenda" "footer"; grid-template-rows: auto auto minmax(0, 1fr) auto; }
+  .weather { text-align: left; }
+  .now, .forecast { justify-content: flex-start; }
+  .agenda { width: 100%; }
+}

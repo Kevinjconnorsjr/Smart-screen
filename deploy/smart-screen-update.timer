@@ -1,0 +1,11 @@
+[Unit]
+Description=Check GitHub for smart display updates every 15 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=15min
+RandomizedDelaySec=60
+Persistent=true
+
+[Install]
+WantedBy=timers.target

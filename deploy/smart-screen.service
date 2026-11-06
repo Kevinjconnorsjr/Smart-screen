@@ -1,0 +1,15 @@
+[Unit]
+Description=Smart display (gestures, lights, photo booth)
+After=network-online.target cups.service
+Wants=network-online.target
+
+[Service]
+User=__USER__
+WorkingDirectory=__DIR__
+Environment=XDG_RUNTIME_DIR=/run/user/__UID__
+ExecStart=__DIR__/.venv/bin/python -m mirror.main
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

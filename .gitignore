@@ -1,0 +1,8 @@
+config.yaml
+models/*.task
+photos/
+backgrounds/*
+!backgrounds/README.txt
+.cache/
+__pycache__/
+.venv/

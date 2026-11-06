@@ -1,0 +1,8 @@
+[Unit]
+Description=Update the smart display from GitHub
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=__DIR__/deploy/update.sh
