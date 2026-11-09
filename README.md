@@ -86,12 +86,16 @@ If there are any, it downloads them, installs any new Python packages, restarts,
 - **To update the display:** push a change to GitHub. That's it.
 - **To update right now:** `sudo ./deploy/update.sh`
 - **To see what happened:** `journalctl -u smart-screen-update`
-- **Your settings and photos are safe.** `config.yaml`, `backgrounds/` and `photos/` aren't in git, so updates never touch them.
+- **Your settings and photos are safe, and stay private.** `config.yaml`, `backgrounds/` and `photos/` are never uploaded to GitHub
+  (they're in `.gitignore`), so updates never touch them. Because the repo is public, keep it that way: your calendar
+  links and light tokens live in `config.yaml` and must never be committed.
 - **Edits made on the Pi are kept.** If you edited code directly on the Pi, updates are skipped (and logged) instead of overwriting your work.
 - **Using a different branch:** the Pi follows whichever branch is checked out (`git checkout some-branch`).
 - **Turning updates off:** `sudo systemctl disable --now smart-screen-update.timer`
 
-**Private repository?** The Pi needs read access. The simplest secure way is a *deploy key*:
+The repo is public, so the Pi downloads updates with no login or keys.
+
+**If you ever make the repo private**, the Pi needs read access. The simplest secure way is a *deploy key*:
 
 ```bash
 ssh-keygen -t ed25519 -f ~/.ssh/smart_display -N ""      # on the Pi
