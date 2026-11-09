@@ -299,7 +299,7 @@ function drawStatus() {
     stat(s.lights_on ? "💡 On" : "Off", "Lights"),
     stat(s.cpu_temp_c != null ? `${s.cpu_temp_c}°C` : "–", "Pi temperature"),
     stat(`${s.disk_free_gb} GB`, `free of ${s.disk_total_gb} GB`),
-    stat(s.camera ? "📷 Ready" : "Not found", "Camera"),
+    stat(s.camera ? "📷 Ready" : "Off", (s.problems && s.problems[0]) || "Camera"),
     stat(s.commit || s.version, "Software version"));
 }
 

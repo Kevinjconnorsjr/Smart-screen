@@ -236,6 +236,7 @@ def create_remote(app_state) -> Blueprint:
             "lights_on": st.mirror.lights.is_on,
             "booth_busy": bool(st.mirror.booth and st.mirror.booth.busy),
             "camera": st.camera is not None,
+            "problems": st.problems,
             "version": st.version,
             "actions": list(st.mirror.actions),
             **_system_info(),

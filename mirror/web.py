@@ -62,7 +62,8 @@ def _restart_soon() -> None:
 
 
 def create_app(cfg: dict, bus: EventBus, photos_dir: Path, mirror, camera=None, version: str = "dev",
-               config_path: Path | None = None, secrets_dir: Path | None = None, restart_soon=_restart_soon) -> Flask:
+               config_path: Path | None = None, secrets_dir: Path | None = None, restart_soon=_restart_soon,
+               problems: list[str] | None = None) -> Flask:
     app = Flask(__name__, static_folder=str(STATIC), static_url_path="/static")
     app.config["MAX_CONTENT_LENGTH"] = 300 * 1024 * 1024  # photo uploads from the phone
 
@@ -93,7 +94,7 @@ def create_app(cfg: dict, bus: EventBus, photos_dir: Path, mirror, camera=None, 
         cfg=cfg, bus=bus, mirror=mirror, camera=camera, version=version, photos_dir=photos_dir,
         backgrounds=backgrounds, config_path=config_path or ROOT / "config.yaml",
         secrets_dir=secrets_dir or ROOT / ".secrets", restart_soon=restart_soon,
-        on_settings_changed=on_settings_changed,
+        on_settings_changed=on_settings_changed, problems=problems or [],
     )
     app.register_blueprint(create_remote(state))
     app.extensions["smart_screen"] = state
@@ -124,6 +125,7 @@ def create_app(cfg: dict, bus: EventBus, photos_dir: Path, mirror, camera=None, 
             "weather": display.get("weather"),
             "seconds_per_photo": int(slideshow.get("seconds_per_photo", 30)),
             "camera": camera is not None,
+            "problems": problems or [],
             "actions": list(mirror.actions),
             "bindings": section("gestures").get("bindings") or {},
         })

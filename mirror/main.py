@@ -112,24 +112,38 @@ def main() -> None:
     power.start()
 
     camera = watcher = None
+    problems: list[str] = []
     if not args.no_camera:
-        from .camera import Camera
-        from .gestures import MODEL_URL, GestureWatcher
-        from .photobooth import PhotoBooth
+        # The screen must keep working even if the camera or gesture recognition can't start
+        # (no webcam plugged in, model missing, ...): log it, show it, and carry on without them.
+        try:
+            from .camera import Camera
+            from .gestures import MODEL_URL, GestureWatcher
+            from .photobooth import PhotoBooth
 
-        model = resolve(cfg["gestures"]["model_path"])
-        if not model.exists():
-            raise SystemExit(f"Gesture model missing: {model}\nDownload it with:\n  curl -L -o {model} {MODEL_URL}")
-        camera = Camera(cfg["camera"])
-        camera.start()
-        mirror.booth = PhotoBooth(camera, cfg["photobooth"], photos_dir, bus.emit)
-        watcher = GestureWatcher(camera, cfg["gestures"], str(model), on_fire=mirror.on_gesture,
-                                 on_progress=mirror.on_hold)
-        mirror.watcher = watcher
-        watcher.start()
+            model = resolve(cfg["gestures"]["model_path"])
+            if not model.exists():
+                raise RuntimeError(f"Gesture model missing ({model}). Download it with: curl -L -o {model} {MODEL_URL}")
+            camera = Camera(cfg["camera"])
+            camera.start()
+            mirror.booth = PhotoBooth(camera, cfg["photobooth"], photos_dir, bus.emit)
+            watcher = GestureWatcher(camera, cfg["gestures"], str(model), on_fire=mirror.on_gesture,
+                                     on_progress=mirror.on_hold)
+            mirror.watcher = watcher
+            watcher.start()
+        except Exception as e:
+            log.error("Camera / gestures are off: %s", e)
+            problems.append(f"Camera off: {e}")
+            if camera is not None:
+                try:
+                    camera.stop()
+                except Exception:
+                    pass
+            camera = watcher = None
+            mirror.booth = mirror.watcher = None
 
     display = cfg["display"]
-    app = create_app(cfg, bus, photos_dir, mirror, camera=camera, version=code_version(),
+    app = create_app(cfg, bus, photos_dir, mirror, camera=camera, version=code_version(), problems=problems,
                      config_path=resolve(args.config) if args.config else None)
     host = display.get("host", "127.0.0.1")
     if (cfg.get("remote") or {}).get("enabled", True) and host in ("127.0.0.1", "localhost"):

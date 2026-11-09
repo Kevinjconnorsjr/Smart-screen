@@ -426,6 +426,7 @@ async function init() {
     console.warn("settings failed", e);
   }
   if (PREVIEW) document.body.classList.add("preview");
+  else if (settings.problems && settings.problems.length) showStatus("⚠️ " + settings.problems.join(" · "), 15000);
   setInterval(tickClock, 1000);
   renderLegend();
   rotateMessage();
