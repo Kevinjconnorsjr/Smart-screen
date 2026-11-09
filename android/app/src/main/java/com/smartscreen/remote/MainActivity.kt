@@ -6,6 +6,8 @@ import android.app.DownloadManager
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.Bitmap
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
@@ -30,6 +32,13 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.Inet4Address
+import java.net.URL
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * Smart Screen remote.
@@ -295,14 +304,22 @@ class MainActivity : Activity() {
     }
 }
 
-/** Finds Smart Screens on the Wi-Fi: each Pi announces itself as "_smartscreen._tcp" (deploy/smart-screen.avahi). */
+/**
+ * Finds Smart Screens on the Wi-Fi in two ways at once:
+ *  1. mDNS: each Pi announces itself as "_smartscreen._tcp" (deploy/smart-screen.avahi).
+ *  2. A quick scan of this Wi-Fi's addresses for the screen's web page on port 8080. This works even
+ *     when the router blocks mDNS (many mesh systems do) or the announcement isn't installed.
+ */
 class ScreenDiscovery(activity: Activity, private val onFound: (name: String, url: String) -> Unit) {
     private val nsd = activity.getSystemService(Activity.NSD_SERVICE) as NsdManager
+    private val connectivity = activity.getSystemService(ConnectivityManager::class.java)
     private var listener: NsdManager.DiscoveryListener? = null
     private val queue = ArrayDeque<NsdServiceInfo>()
     private var resolving = false
+    @Volatile private var scanner: ExecutorService? = null
 
     fun start() {
+        startScan()
         if (listener != null) return
         val l = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(serviceType: String) {}
@@ -320,7 +337,60 @@ class ScreenDiscovery(activity: Activity, private val onFound: (name: String, ur
         }
     }
 
+    // ---------- address scan ----------
+
+    private fun startScan() {
+        if (scanner != null) return
+        val hosts = localHosts()
+        if (hosts.isEmpty()) return
+        val pool = Executors.newFixedThreadPool(48)
+        scanner = pool
+        for (host in hosts) pool.execute { probe(host) }
+        pool.shutdown()
+        Thread {
+            pool.awaitTermination(30, TimeUnit.SECONDS)
+            if (scanner === pool) scanner = null // allow another scan next time the list is shown
+        }.start()
+    }
+
+    /** Every other address on this phone's Wi-Fi (at most 254 of them: the phone's own /24). */
+    private fun localHosts(): List<String> {
+        val network = connectivity?.activeNetwork ?: return emptyList()
+        val caps = connectivity.getNetworkCapabilities(network)
+        val onLan = caps != null && (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))
+        if (!onLan) return emptyList() // don't scan the mobile network
+        val props = try { connectivity.getLinkProperties(network) } catch (_: Exception) { null }
+        val own = props?.linkAddresses?.map { it.address }?.firstOrNull { it is Inet4Address && !it.isLoopbackAddress }
+            ?: return emptyList()
+        val b = own.address
+        return (1..254).filter { it != (b[3].toInt() and 0xff) }
+            .map { "${b[0].toInt() and 0xff}.${b[1].toInt() and 0xff}.${b[2].toInt() and 0xff}.$it" }
+    }
+
+    private fun probe(host: String) {
+        if (scanner == null) return
+        val base = "http://$host:$PORT"
+        try {
+            val conn = URL("$base/api/pair/status").openConnection() as HttpURLConnection
+            conn.connectTimeout = 800
+            conn.readTimeout = 1500
+            try {
+                if (conn.responseCode != 200) return
+                val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+                if (!json.has("paired")) return
+                onFound(json.optString("name").ifBlank { "Smart Screen" }, base)
+            } finally {
+                conn.disconnect()
+            }
+        } catch (_: Exception) {
+            // nothing there, or not a Smart Screen
+        }
+    }
+
     fun stop() {
+        scanner?.shutdownNow()
+        scanner = null
         listener?.let { try { nsd.stopServiceDiscovery(it) } catch (_: Exception) {} }
         listener = null
         synchronized(queue) { queue.clear() }
@@ -356,6 +426,7 @@ class ScreenDiscovery(activity: Activity, private val onFound: (name: String, ur
     }
 
     companion object {
-        const val SERVICE_TYPE = "_smartscreen._tcp."
+        const val SERVICE_TYPE = "_smartscreen._tcp"
+        const val PORT = 8080
     }
 }

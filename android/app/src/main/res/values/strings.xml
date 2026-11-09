@@ -3,7 +3,7 @@
     <string name="app_name">Smart Screen</string>
     <string name="setup_title">Find your Smart Screen</string>
     <string name="setup_searching">Looking for screens on this Wi-Fi…</string>
-    <string name="setup_none_yet">None found yet. Make sure this phone is on the same Wi-Fi as the screen, and that the screen is on.</string>
+    <string name="setup_none_yet">None found yet. Check that:\n• the screen is on and showing the clock\n• this phone is on the same Wi-Fi (not a guest network)\n• any VPN on this phone is off\nOr type the screen\'s address below.</string>
     <string name="setup_manual">Or type its address</string>
     <string name="setup_address_hint">e.g. 192.168.1.20 or smartscreen.local</string>
     <string name="setup_connect">Connect</string>

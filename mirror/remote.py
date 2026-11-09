@@ -19,6 +19,7 @@ import os
 import re
 import secrets
 import shutil
+import socket
 import subprocess
 import threading
 import time
@@ -212,7 +213,11 @@ def create_remote(app_state) -> Blueprint:
 
     @bp.get("/api/pair/status")
     def pair_status():
-        return jsonify({"paired": is_local() or devices.check(token()) is not None})
+        # Also tells the phone app "this is a Smart Screen" when it scans the Wi-Fi for one.
+        # The name matches the mDNS announcement in deploy/smart-screen.avahi: "<name> (<hostname>)".
+        name = (st.cfg.get("remote") or {}).get("name") or "Smart Screen"
+        return jsonify({"paired": is_local() or devices.check(token()) is not None,
+                        "app": "smart-screen", "name": f"{name} ({socket.gethostname()})"})
 
     # ---------- the phone page ----------
     @bp.get("/remote")

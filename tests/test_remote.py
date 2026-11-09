@@ -60,7 +60,8 @@ def test_phone_must_pair_before_anything(env):
         assert getattr(client, method)(url, environ_base=PHONE).status_code == 401, url
     # the pairing page itself is open
     assert client.get("/remote", environ_base=PHONE).status_code == 200
-    assert client.get("/api/pair/status", environ_base=PHONE).json == {"paired": False}
+    status = client.get("/api/pair/status", environ_base=PHONE).json
+    assert status["paired"] is False and status["app"] == "smart-screen" and status["name"].startswith("Smart Screen (")
     # the Pi's own browser never needs pairing
     assert client.get("/api/settings", environ_base=PI).status_code == 200
 
@@ -68,7 +69,7 @@ def test_phone_must_pair_before_anything(env):
 def test_pairing_with_code_from_screen(env):
     client, bus, *_ = env
     token = pair(client, bus)
-    assert client.get("/api/pair/status", environ_base=PHONE).json == {"paired": True}  # cookie set
+    assert client.get("/api/pair/status", environ_base=PHONE).json["paired"] is True  # cookie set
     assert client.get("/api/remote/status", environ_base=PHONE).status_code == 200
     assert ("pair", {"code": None, "paired": True}) in bus.events  # code disappears from the screen
     # the token also works as a header (scripts, curl) from another client without the cookie
