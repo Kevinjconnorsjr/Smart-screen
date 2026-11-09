@@ -8,7 +8,7 @@ DIR="$(pwd)"
 
 echo "== Installing system packages"
 sudo apt-get update
-sudo apt-get install -y git python3-venv python3-picamera2 libegl1 libgles2 cups wlr-randr fonts-dejavu-core
+sudo apt-get install -y git python3-venv python3-picamera2 libegl1 libgles2 cups printer-driver-gutenprint wlr-randr fonts-dejavu-core
 sudo apt-get install -y chromium-browser || sudo apt-get install -y chromium
 sudo usermod -aG lpadmin "$USER"   # lets you add printers at http://localhost:631
 
