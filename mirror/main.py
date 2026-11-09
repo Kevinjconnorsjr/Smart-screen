@@ -37,6 +37,11 @@ class Mirror:
             "lights_on": self.lights_on,
             "lights_off": self.lights_off,
             "lights_toggle": self.lights_toggle,
+            "lights_dim": lambda: self._lights(lambda: self.lights.set_brightness(30)),
+            "lights_bright": lambda: self._lights(lambda: self.lights.set_brightness(100)),
+            "lights_warm": lambda: self._lights(lambda: self.lights.set_color("warm")),
+            "lights_cool": lambda: self._lights(lambda: self.lights.set_color("cool")),
+            "lights_party": lambda: self._lights(self.lights.next_party_color),
             "photo_booth": self.photo_booth,
             "wake": self.power.wake,
             "sleep": self.power.sleep,
@@ -74,7 +79,7 @@ class Mirror:
 
     def _lights(self, change) -> None:
         change()
-        self.bus.emit("lights", {"on": self.lights.is_on})
+        self.bus.emit("lights", self.lights.state())
 
     def lights_on(self):
         self._lights(self.lights.turn_on)
@@ -143,8 +148,14 @@ def main() -> None:
             mirror.booth = mirror.watcher = None
 
     display = cfg["display"]
+    from .alexa import AlexaVoice
+    from .screen import apply_rotation
+
+    apply_rotation(cfg)  # also done by the kiosk when the desktop starts
+    alexa = AlexaVoice(cfg.get("alexa") or {}, int(display["port"]), resolve(".cache/alexa.json"))
+    alexa.start()
     app = create_app(cfg, bus, photos_dir, mirror, camera=camera, version=code_version(), problems=problems,
-                     config_path=resolve(args.config) if args.config else None)
+                     config_path=resolve(args.config) if args.config else None, start_background=True, alexa=alexa)
     host = display.get("host", "127.0.0.1")
     if (cfg.get("remote") or {}).get("enabled", True) and host in ("127.0.0.1", "localhost"):
         host = "0.0.0.0"  # the phone app needs to reach us; only paired phones get in (see remote.py)

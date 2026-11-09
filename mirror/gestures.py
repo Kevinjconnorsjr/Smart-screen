@@ -101,18 +101,21 @@ class GestureWatcher:
         start = time.monotonic()
         last_t = 0.0
         last_report = (None, -1.0)
+        min_gap = 1 / max(1.0, float(self.cfg.get("max_fps", 15)))
         while self._running:
-            got = self.camera.latest(newer_than=last_t, timeout=1.0)
+            got = self.camera.latest_bgr(newer_than=last_t, timeout=1.0)
             if got is None:
                 continue
             frame, last_t = got
             if self.paused.is_set():
                 self.trigger.update(None, 0.0, last_t)
                 continue
-            # Recognition doesn't need full resolution; ~640px wide is plenty and much faster on a Pi.
+            # Recognition doesn't need full resolution or every frame: ~640 px wide at up to
+            # `max_fps` leaves the Pi's CPU free for the live preview and the slideshow.
             h, w = frame.shape[:2]
             if w > 640:
                 frame = cv2.resize(frame, (640, int(h * 640 / w)), interpolation=cv2.INTER_AREA)
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
             result = recognizer.recognize_for_video(image, int((last_t - start) * 1000))
 
@@ -133,4 +136,7 @@ class GestureWatcher:
                     self.on_fire(fired)
                 except Exception:  # an action failing must not kill the watcher
                     log.exception("Action for %s failed", fired)
+            spare = min_gap - (time.monotonic() - last_t)
+            if spare > 0:
+                time.sleep(spare)
         recognizer.close()

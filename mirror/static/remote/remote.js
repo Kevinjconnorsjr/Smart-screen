@@ -11,6 +11,12 @@ const GESTURES = {
 const ACTIONS = {
   "": "Nothing", lights_on: "Lights on", lights_off: "Lights off", lights_toggle: "Toggle lights",
   photo_booth: "Photo booth", wake: "Wake screen", sleep: "Sleep screen",
+  lights_dim: "Dim lights", lights_bright: "Bright lights", lights_warm: "Warm light",
+  lights_cool: "Cool light", lights_party: "Party colours",
+};
+const LIGHT_COLORS = {
+  warm: "#ffb86b", daylight: "#fff4e0", cool: "#d6ecff", red: "#ff2a1e", orange: "#ff8c14",
+  yellow: "#ffdc3c", green: "#28dc50", blue: "#285aff", purple: "#963cff", pink: "#ff50b4",
 };
 const ACCENTS = ["#ffd36e", "#ff8a65", "#f06292", "#ba68c8", "#7b9cff", "#4fc3f7", "#4db6ac", "#aed581", "#ffffff"];
 const NEWS_PRESETS = [
@@ -70,7 +76,10 @@ function set(path, value) {
   for (const k of keys.slice(0, -1)) o = o[k] ?? (o[k] = {});
   o[keys.at(-1)] = value;
   scheduleSave();
+  // Settings that show or hide other settings: redraw the page.
+  if (RERENDER.has(path)) setTimeout(() => RENDER[S.page](), 0);
 }
+const RERENDER = new Set(["display.orientation", "slideshow.include_videos", "alexa.voice_commands", "cloud.enabled"]);
 const isLocked = (path) => [...S.locked].some((l) => path === l || path.startsWith(l + "."));
 
 /* ---------- saving (automatic) ---------- */
@@ -152,9 +161,9 @@ function rangeRow(path, label, opts) {
   return rowShell(path, label, opts.hint, el("div", { class: "row", style: "padding:0;min-height:0;flex:1;width:100%" }, input, value), { stack: true });
 }
 
-function selectRow(path, label, options, hint) {
-  const select = el("select", { onchange: (e) => set(path, e.target.value) },
-    options.map(([v, l]) => el("option", { value: v, selected: (get(path) ?? "") === v }, l)));
+function selectRow(path, label, options, hint, numeric = false) {
+  const select = el("select", { onchange: (e) => set(path, numeric ? Number(e.target.value) : e.target.value) },
+    options.map(([v, l]) => el("option", { value: v, selected: String(get(path) ?? "") === String(v) }, l)));
   return rowShell(path, label, hint, select);
 }
 
@@ -283,9 +292,55 @@ function renderHome() {
       button("wake", "☀️", "Wake screen"),
       button("sleep", "😴", "Sleep screen"),
       el("button", { class: "action", onclick: () => { reloadPreview(); loadStatus(); toast("Refreshed"); } }, el("span", {}, "🔄"), "Refresh")),
+    el("h2", {}, "Lights"),
+    el("div", { class: "card", id: "lights-panel" }),
     el("h2", {}, "Status"),
     el("div", { class: "card" }, el("div", { id: "stats", class: "stats" })));
   drawStatus();
+  drawLights();
+}
+
+async function lightsCmd(body) {
+  try {
+    const r = await api("POST", "/api/remote/lights", body);
+    if (S.status) S.status.lights = r.lights;
+    drawLights();
+  } catch (e) { toast(e.message, 4000); }
+}
+
+function drawLights() {
+  const box = $("#lights-panel");
+  if (!box) return;
+  const L = S.status?.lights;
+  if (!L) { box.replaceChildren(el("div", { class: "empty-note" }, "…")); return; }
+  const none = (get("lights.backend") || "none") === "none";
+  const rows = [
+    el("div", { class: "row" }, el("div", { class: "label" }, L.on ? "💡 On" : "Off",
+      none ? el("span", { class: "hint" }, "No lights set up yet: Settings → Lights") : null),
+      el("div", { class: "seg", style: "min-width:150px" },
+        el("button", { class: L.on ? "on" : "", onclick: () => lightsCmd({ power: "on" }) }, "On"),
+        el("button", { class: L.on ? "" : "on", onclick: () => lightsCmd({ power: "off" }) }, "Off"))),
+  ];
+  if (L.supports_brightness) {
+    const value = el("span", { class: "value" }, `${L.brightness}%`);
+    const slider = el("input", { type: "range", min: 1, max: 100, step: 1, value: L.brightness,
+      oninput: (e) => { value.textContent = `${e.target.value}%`; },
+      onchange: (e) => lightsCmd({ brightness: Number(e.target.value) }) });
+    rows.push(el("div", { class: "row stack" }, el("div", { class: "label" }, "Brightness"),
+      el("div", { class: "row", style: "padding:0;min-height:0" }, slider, value)));
+  }
+  const colors = L.supports_color ? L.colors : [];
+  if (colors.length || (L.supports_brightness && !L.supports_color)) {
+    rows.push(el("div", { class: "row stack" }, el("div", { class: "label" }, "Colour"),
+      el("div", { class: "swatches" },
+        ...colors.map((c) => el("button", { class: `swatch${L.color === c ? " on" : ""}`, title: c, "aria-label": c,
+          style: `background:${LIGHT_COLORS[c] || "#888"}`, onclick: () => lightsCmd({ color: c }) })),
+        el("button", { class: "btn small", onclick: () => lightsCmd({ color: "party" }) }, "🎉 Party"))));
+  } else if (!none) {
+    rows.push(el("div", { class: "row" }, el("div", { class: "label" }, "Party colours"),
+      el("button", { class: "btn small", onclick: () => lightsCmd({ color: "party" }) }, "🎉 Party")));
+  }
+  box.replaceChildren(...rows);
 }
 
 function drawStatus() {
@@ -307,6 +362,7 @@ async function loadStatus() {
   try {
     S.status = await api("GET", "/api/remote/status");
     drawStatus();
+    drawLights();
   } catch (e) { /* shown elsewhere */ }
 }
 
@@ -314,6 +370,13 @@ function renderLook() {
   const page = $('[data-page="look"]');
   page.replaceChildren(
     el("p", { class: "help" }, "Changes show on the screen right away."),
+    ...section("Screen",
+      segRow("display.orientation", "Orientation", [["landscape", "▭ Landscape"], ["portrait", "▯ Portrait"]],
+        "Portrait = the monitor standing on its side"),
+      get("display.orientation") === "portrait"
+        ? segRow("display.portrait_turned", "Monitor was turned", [["right", "↻ Right"], ["left", "↺ Left"]],
+          "If the picture is upside down, pick the other one")
+        : null),
     ...section("Layout",
       segRow("display.style", "Background", [["photos", "🖼️ Photos"], ["mirror", "⬛ Black"]]),
       segRow("display.layout", "Clock & calendar side", [["left", "◧ Left"], ["right", "◨ Right"]]),
@@ -335,7 +398,15 @@ function renderLook() {
     ...section("Clock",
       toggleRow("display.clock_24h", "24-hour clock"),
       toggleRow("display.show_seconds", "Show seconds")),
-    ...section("Photo slideshow",
+    ...section("Photos & videos",
+      segRow("slideshow.tiles", "On screen at once", [1, 2, 3, 4, 5, 6].map((n) => [n, String(n)])),
+      toggleRow("slideshow.include_videos", "Play videos"),
+      get("slideshow.include_videos") !== false
+        ? segRow("slideshow.videos_at_once", "Videos playing at once", [[1, "1"], [2, "2"], [3, "3"]],
+          "Each video uses a lot of the Pi's power; 1–2 stays smooth") : null,
+      get("slideshow.include_videos") !== false
+        ? rangeRow("slideshow.video_max_seconds", "Longest video", { min: 10, max: 300, step: 10,
+          fmt: (v) => (v < 60 ? `${v} s` : `${Math.round(v / 6) / 10} min`), hint: "Longer videos are cut" }) : null,
       rangeRow("slideshow.seconds_per_photo", "Time per photo", { min: 5, max: 300, step: 5, fmt: (v) => (v < 60 ? `${v} s` : `${Math.round(v / 6) / 10} min`) }),
       toggleRow("slideshow.include_booth_photos", "Include photo booth pictures")));
 }
@@ -409,17 +480,51 @@ function renderPhotos() {
   (photoTab === "slideshow" ? drawSlideshow : drawBooth)(body).catch((e) => body.replaceChildren(el("div", { class: "empty-note" }, e.message)));
 }
 
+function driveCard() {
+  const card = el("div", { class: "card", style: "margin-bottom:14px" }, el("div", { class: "empty-note" }, "Google Drive…"));
+  api("GET", "/api/remote/cloud").then((c) => {
+    if (!c.installed || !c.connected) {
+      card.replaceChildren(el("div", { class: "row stack" },
+        el("div", { class: "label" }, "☁️ Google Drive",
+          el("span", { class: "hint" }, "Show a Google Drive folder on the screen. Connect your account once: on the Pi, open a Terminal and run"),
+          el("code", { style: "display:block;margin-top:6px;font-size:14px" }, "cd ~/smart-screen && ./deploy/connect-google-drive.sh"))));
+      return;
+    }
+    const when = c.last_run ? new Date(c.last_run).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "never";
+    const status = c.running ? "Syncing now…" : c.last_ok === false ? `⚠️ ${c.last_error}` : `${c.files} files · last checked ${when}`;
+    card.replaceChildren(
+      toggleRow("cloud.enabled", "☁️ Show my Google Drive folder", status),
+      get("cloud.enabled") ? textRow("cloud.folder", "Folder name in Google Drive", { placeholder: "Smart Screen",
+        hint: "Subfolders are included. Changes in Drive show up here automatically." }) : null,
+      get("cloud.enabled") ? toggleRow("cloud.shared_with_me", "It's a folder someone shared with me") : null,
+      get("cloud.enabled") ? numberRow("cloud.every_minutes", "Check for new photos every (minutes)", { min: 5, max: 1440 }) : null,
+      get("cloud.enabled") ? el("div", { class: "row" }, el("div", { class: "label" }, "Check now"),
+        el("button", { class: "btn small", onclick: async () => {
+          try { await api("POST", "/api/remote/cloud/sync"); toast("Checking Google Drive…"); setTimeout(renderPhotos, 8000); } catch (e) { toast(e.message); }
+        } }, "Sync now")) : null);
+  }).catch((e) => card.replaceChildren(el("div", { class: "empty-note" }, e.message)));
+  return card;
+}
+
 async function drawSlideshow(body) {
   const items = await api("GET", "/api/remote/backgrounds");
-  const input = el("input", { type: "file", accept: "image/*", multiple: true, onchange: async (e) => {
+  const input = el("input", { type: "file", accept: "image/*,video/*", multiple: true, onchange: async (e) => {
     const files = [...e.target.files];
     if (!files.length) return;
     label.firstChild.textContent = `Uploading ${files.length} photo${files.length > 1 ? "s" : ""}…`;
     let done = 0;
     try {
-      for (let i = 0; i < files.length; i += 5) { // a few at a time keeps big batches reliable
+      // A few at a time (videos one by one) keeps big uploads reliable.
+      const batches = [];
+      for (const f of files) {
+        const last = batches.at(-1);
+        if (!last || last.length >= 5 || f.type.startsWith("video/") || last.some((x) => x.type.startsWith("video/"))) batches.push([f]);
+        else last.push(f);
+      }
+      for (const [b, batch] of batches.entries()) {
+        label.firstChild.textContent = `Uploading ${b + 1} of ${batches.length}…`;
         const form = new FormData();
-        files.slice(i, i + 5).forEach((f) => form.append("photos", f, f.name));
+        batch.forEach((f) => form.append("photos", f, f.name));
         const res = await api("POST", "/api/remote/backgrounds", form, true);
         done += res.saved.length;
       }
@@ -427,18 +532,25 @@ async function drawSlideshow(body) {
     } catch (err) { toast(err.message, 4000); }
     renderPhotos();
   } });
-  const label = el("label", { class: "upload" }, "＋ Add photos from this phone", input);
+  const label = el("label", { class: "upload" }, "＋ Add photos & videos from this phone", input);
   const grid = el("div", { class: "grid" });
   for (const p of items) {
+    const video = p.type === "video";
     grid.append(el("div", { class: "thumb" },
       el("img", { src: `/api/remote/thumb/${p.id}.jpg`, loading: "lazy", alt: p.name,
-        onclick: () => openViewer(`/bg/${p.id}.jpg`) }),
-      el("button", { class: "del", "aria-label": "Delete", onclick: async () => {
+        onclick: () => (video ? (p.state === "ready" ? openVideo(`/bg/${p.id}.mp4`) : toast("Still preparing this video for the screen…"))
+          : openViewer(`/bg/${p.id}.jpg`)) }),
+      video ? el("span", { class: "badge" }, p.state === "ready" ? "▶" : p.state === "failed" ? "⚠️" : "⏳") : null,
+      p.cloud ? el("span", { class: "badge cloud" }, "☁️") : el("button", { class: "del", "aria-label": "Delete", onclick: async () => {
         if (!confirm("Remove this photo from the slideshow? It is deleted from the Pi.")) return;
         try { await api("DELETE", `/api/remote/backgrounds/${p.id}`); renderPhotos(); } catch (e) { toast(e.message); }
       } }, "🗑")));
   }
-  body.replaceChildren(label, el("p", { class: "help" }, `${items.length} photo${items.length === 1 ? "" : "s"} in the slideshow`),
+  const nVideos = items.filter((i) => i.type === "video").length;
+  body.replaceChildren(driveCard(), label,
+    el("p", { class: "help" }, `${items.length - nVideos} photo${items.length - nVideos === 1 ? "" : "s"}` +
+      (nVideos ? ` and ${nVideos} video${nVideos === 1 ? "" : "s"}` : "") + " in the slideshow" +
+      (items.some((i) => i.state === "processing") ? " · ⏳ = getting a video ready for the screen" : "")),
     items.length ? grid : el("div", { class: "empty-note" }, "No photos yet. Add some above!"));
 }
 
@@ -472,8 +584,19 @@ async function drawBooth(body) {
 }
 
 function openViewer(src) {
+  $("#viewer-video").hidden = true;
+  $("#viewer-img").hidden = false;
   $("#viewer-img").src = src;
   $("#viewer").showModal();
+}
+
+function openVideo(src) {
+  const v = $("#viewer-video");
+  $("#viewer-img").hidden = true;
+  v.hidden = false;
+  v.src = src;
+  $("#viewer").showModal();
+  v.play().catch(() => {});
 }
 
 /* ---------- settings ---------- */
@@ -497,6 +620,18 @@ function renderMore() {
     webhook: [
       textRow("lights.webhook.on_url", "Link that turns lights ON", { type: "url" }),
       textRow("lights.webhook.off_url", "Link that turns lights OFF", { type: "url" }),
+      textRow("lights.webhook.urls.dim", "Link that dims them (optional)", { type: "url" }),
+      textRow("lights.webhook.urls.bright", "Link that makes them bright (optional)", { type: "url" }),
+    ],
+    alexa: [
+      el("div", { class: "row stack" }, el("div", { class: "label" }, "How this works",
+        el("span", { class: "hint" }, "The screen runs Alexa routines through the free Voice Monkey skill. " +
+          "For each button below, make a routine trigger at app.voicemonkey.io, then an Alexa routine that runs " +
+          "when it fires (e.g. turn the living room lights on). Paste each trigger's ID here. Full steps: README → Alexa."))),
+      textRow("lights.alexa.token", "Voice Monkey token", { type: "password", hint: "app.voicemonkey.io → API Tokens" }),
+      ...[["on", "Lights on"], ["off", "Lights off"], ["dim", "Dim"], ["bright", "Bright"], ["warm", "Warm light"],
+        ["cool", "Cool light"], ["party", "Party colours"]].map(([k, label]) =>
+        textRow(`lights.alexa.routines.${k}`, `${label}: trigger ID`, { placeholder: "leave empty if not used", stack: false })),
     ],
   };
   // Hue light numbers are a list of numbers in the config; edit them as "1, 2".
@@ -506,7 +641,8 @@ function renderMore() {
     ids.oninput = () => set("lights.hue.light_ids", ids.value.split(/[,\s]+/).filter(Boolean).map(Number).filter(isFinite));
   }
   const lightsSelect = selectRow("lights.backend", "Light system",
-    [["none", "None"], ["home_assistant", "Home Assistant"], ["hue", "Philips Hue"], ["webhook", "Web links (Shelly, Tasmota…)"]]);
+    [["none", "None"], ["alexa", "Alexa (lights in the Alexa app)"], ["home_assistant", "Home Assistant"],
+      ["hue", "Philips Hue"], ["webhook", "Web links (Shelly, Tasmota…)"]]);
   lightsSelect.querySelector("select").addEventListener("change", () => setTimeout(renderMore, 0));
 
   page.replaceChildren(
@@ -535,6 +671,13 @@ function renderMore() {
       toggleRow("display.wake_on_hand", "Wake when a hand is raised")),
     el("h2", {}, "Lights"),
     el("div", { class: "card" }, lightsSelect, ...(lightRows[lightsBackend] || [])),
+    el("h2", {}, "Alexa voice commands"),
+    el("p", { class: "help" }, "Say “Alexa, turn on the photo booth”. The screen shows up in the Alexa app as smart plugs. " +
+      "After turning this on, say “Alexa, discover devices” once."),
+    alexaVoiceCard(actionOptions),
+    ...section("Camera",
+      selectRow("camera.rotate", "Camera mounted", [["0", "Upright"], ["90", "On its side (turned right)"],
+        ["270", "On its side (turned left)"], ["180", "Upside down"]], "Turn it so your hands look upright in the photo booth preview", true)),
     el("h2", {}, "Paired phones"),
     el("div", { class: "card", id: "devices" }, el("div", { class: "empty-note" }, "Loading…")),
     el("h2", {}, "System"),
@@ -547,9 +690,56 @@ function renderMore() {
         el("button", { class: "btn small", onclick: async () => {
           try { await api("POST", "/api/remote/restart"); toast("Restarting… back in about 10 seconds", 4000); setTimeout(reloadPreview, 10000); } catch (e) { toast(e.message); }
         } }, "Restart")),
+      el("div", { class: "row" }, el("div", { class: "label" }, "Restart the Pi"),
+        el("button", { class: "btn small", onclick: () => power("reboot") }, "Restart Pi")),
+      el("div", { class: "row" }, el("div", { class: "label" }, "Shut down the Pi",
+        el("span", { class: "hint" }, "Do this before unplugging it. Unplug once the screen is dark.")),
+        el("button", { class: "btn small danger", onclick: () => power("shutdown") }, "Shut down")),
       APP?.chooseScreen ? el("div", { class: "row" }, el("div", { class: "label" }, "Connect to a different screen"),
         el("button", { class: "btn small", onclick: () => APP.chooseScreen() }, "Switch")) : null));
   loadDevices();
+}
+
+async function power(what) {
+  const ask = what === "shutdown"
+    ? "Shut down the Pi? Wait until the screen is dark (about 15 seconds) before unplugging it. To turn it back on, unplug and plug it in again."
+    : "Restart the Pi? The screen comes back in about a minute.";
+  if (!confirm(ask)) return;
+  try {
+    await api("POST", `/api/remote/power/${what}`);
+    toast(what === "shutdown" ? "Shutting down… unplug once the screen is dark" : "Restarting… back in about a minute", 8000);
+  } catch (e) { toast(e.message, 6000); }
+}
+
+function alexaVoiceCard(actionOptions) {
+  const card = el("div", { class: "card" });
+  const options = [["", "Nothing"], ...actionOptions.filter(([k]) => k)];
+  const draw = () => {
+    const list = get("alexa.devices") || [];
+    const rows = [toggleRow("alexa.voice_commands", "Turn on Alexa voice commands")];
+    if (get("alexa.voice_commands")) {
+      list.forEach((d, i) => {
+        const upd = (k, v) => { list[i] = { ...list[i], [k]: v }; set("alexa.devices", list); };
+        const pick = (k) => el("select", { onchange: (e) => upd(k, e.target.value) },
+          options.map(([v, l]) => el("option", { value: v, selected: (d[k] || "") === v }, l)));
+        rows.push(el("div", { class: "item" },
+          el("div", { class: "item-head" },
+            el("input", { type: "text", value: d.name || "", placeholder: "Name Alexa hears, e.g. Photo booth",
+              oninput: (e) => upd("name", e.target.value) }),
+            el("button", { class: "icon-btn", "aria-label": "Remove", onclick: () => { list.splice(i, 1); set("alexa.devices", list); draw(); } }, "✕")),
+          el("div", { class: "row", style: "padding:0;min-height:0;gap:8px" }, el("span", { class: "muted" }, "“turn on”"), pick("on")),
+          el("div", { class: "row", style: "padding:0;min-height:0;gap:8px" }, el("span", { class: "muted" }, "“turn off”"), pick("off"))));
+      });
+      rows.push(el("div", { class: "add-row" }, el("button", { class: "btn small", onclick: () => {
+        set("alexa.devices", [...list, { name: "", on: "", off: "" }]); draw();
+      } }, "+ Add a voice command")));
+      const st = S.status?.alexa;
+      if (st && st.enabled && !st.running && st.error) rows.push(el("div", { class: "empty-note" }, `⚠️ ${st.error}`));
+    }
+    card.replaceChildren(...rows);
+  };
+  draw();
+  return card;
 }
 
 async function loadDevices() {

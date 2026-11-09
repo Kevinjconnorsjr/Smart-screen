@@ -14,7 +14,9 @@ from flask import Flask, Response, abort, jsonify, request, send_file, send_from
 
 from .backgrounds import Backgrounds
 from .calendar_feed import CalendarFeed
+from .cloud_sync import CloudSync
 from .config import ROOT, resolve
+from .screen import apply_rotation, is_portrait, transform
 from .news import News
 from .remote import create_remote
 
@@ -63,9 +65,9 @@ def _restart_soon() -> None:
 
 def create_app(cfg: dict, bus: EventBus, photos_dir: Path, mirror, camera=None, version: str = "dev",
                config_path: Path | None = None, secrets_dir: Path | None = None, restart_soon=_restart_soon,
-               problems: list[str] | None = None) -> Flask:
+               problems: list[str] | None = None, start_background: bool = False, alexa=None) -> Flask:
     app = Flask(__name__, static_folder=str(STATIC), static_url_path="/static")
-    app.config["MAX_CONTENT_LENGTH"] = 300 * 1024 * 1024  # photo uploads from the phone
+    app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 ** 3  # photo and video uploads from the phone
 
     def section(name: str) -> dict:
         return cfg.get(name) or {}
@@ -78,23 +80,41 @@ def create_app(cfg: dict, bus: EventBus, photos_dir: Path, mirror, camera=None, 
 
     def screen_size() -> tuple[int, int]:
         size = section("slideshow").get("size") or [1920, 1080]
-        return int(size[0]), int(size[1])
+        long, short = max(int(size[0]), int(size[1])), min(int(size[0]), int(size[1]))
+        return (short, long) if is_portrait(cfg) else (long, short)
 
-    backgrounds = Backgrounds(folders, resolve(section("slideshow").get("cache_dir", ".cache/backgrounds")), screen_size)
+    def first_folder() -> Path:
+        return resolve((section("slideshow").get("folders") or ["backgrounds"])[0])
+
+    backgrounds = Backgrounds(folders, resolve(section("slideshow").get("cache_dir", ".cache/backgrounds")), screen_size,
+                              video_max_seconds=lambda: float(section("slideshow").get("video_max_seconds", 60)))
+    cloud = CloudSync(lambda: section("cloud"), lambda: first_folder() / "cloud", lambda: backgrounds.list(max_age=0))
+    if start_background:
+        cloud.start()
+        threading.Thread(target=lambda: backgrounds.list(max_age=0), daemon=True).start()  # start preparing videos
     calendar = CalendarFeed(cfg.setdefault("calendar", {}))
     news = News(cfg.setdefault("news", {}))
+
+    last = {"transform": transform(cfg), "cloud": dict(section("cloud"))}
 
     def on_settings_changed() -> None:
         calendar._fetched_at = 0  # fetch again with the new calendar list
         news._fetched_at = 0
         backgrounds.list(max_age=0)
+        if transform(cfg) != last["transform"]:
+            last["transform"] = transform(cfg)
+            apply_rotation(cfg)
+        if dict(section("cloud")) != last["cloud"]:
+            last["cloud"] = dict(section("cloud"))
+            if section("cloud").get("enabled"):
+                cloud.sync_now()
         bus.emit("settings", {})
 
     state = SimpleNamespace(
         cfg=cfg, bus=bus, mirror=mirror, camera=camera, version=version, photos_dir=photos_dir,
         backgrounds=backgrounds, config_path=config_path or ROOT / "config.yaml",
         secrets_dir=secrets_dir or ROOT / ".secrets", restart_soon=restart_soon,
-        on_settings_changed=on_settings_changed, problems=problems or [],
+        on_settings_changed=on_settings_changed, problems=problems or [], cloud=cloud, alexa=alexa,
     )
     app.register_blueprint(create_remote(state))
     app.extensions["smart_screen"] = state
@@ -124,6 +144,11 @@ def create_app(cfg: dict, bus: EventBus, photos_dir: Path, mirror, camera=None, 
             "messages": display.get("messages") or [],
             "weather": display.get("weather"),
             "seconds_per_photo": int(slideshow.get("seconds_per_photo", 30)),
+            "orientation": "portrait" if is_portrait(cfg) else "landscape",
+            "transform": transform(cfg),
+            "tiles": max(1, min(6, int(slideshow.get("tiles", 1) or 1))),
+            "include_videos": bool(slideshow.get("include_videos", True)),
+            "videos_at_once": max(0, min(4, int(slideshow.get("videos_at_once", 1) or 0))),
             "camera": camera is not None,
             "problems": problems or [],
             "actions": list(mirror.actions),
@@ -140,7 +165,19 @@ def create_app(cfg: dict, bus: EventBus, photos_dir: Path, mirror, camera=None, 
 
     @app.get("/api/backgrounds")
     def background_list():
-        return jsonify(backgrounds.list())
+        videos = bool(section("slideshow").get("include_videos", True)) and int(section("slideshow").get("videos_at_once", 1) or 0) > 0
+        return jsonify(backgrounds.items(videos=videos))
+
+    @app.get("/bg/<photo_id>.mp4")
+    def background_video(photo_id: str):
+        path = backgrounds.video_path(photo_id)
+        if path is None:
+            abort(404)
+        return send_file(path, mimetype="video/mp4", max_age=86400, conditional=True)
+
+    @app.post("/api/noop")
+    def noop():  # used by the Alexa voice devices that only do something when turned on
+        return jsonify({"ok": True})
 
     @app.get("/bg/<photo_id>.jpg")
     def background(photo_id: str):

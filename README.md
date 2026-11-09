@@ -138,44 +138,113 @@ calendar:
 Treat these links like passwords: anyone with the link can read the calendar. That's another reason to keep
 `config.yaml` out of GitHub (it's already in `.gitignore`).
 
-## 5. Background photos
+## 5. Background photos & videos
 
-Put photos in the **`backgrounds/`** folder. Subfolders are fine, and JPG, PNG and iPhone HEIC all work.
-Each photo is resized to the screen once and cached, so even huge photos display smoothly.
-New photos show up within a couple of minutes, without a restart.
+Put photos **and videos** in the **`backgrounds/`** folder (subfolders are fine), add them from the phone app
+(**Photos → Add photos & videos**), or show a **Google Drive folder** (below). JPG, PNG, iPhone HEIC, MP4 and MOV all work.
 
-Ways to get photos onto the Pi:
+- Photos are resized to the screen once and cached, so even huge photos display smoothly.
+- Videos are converted once, in the background, to a small silent clip that plays smoothly on the Pi
+  (the Pi 5 has no hardware decoder for phone video, and its browser can't play iPhone HEVC at all).
+  A video joins the slideshow when its copy is ready; the app shows ⏳ until then. Long videos are cut
+  to **Longest video** (60 s by default).
+- **How many at once:** in the app, **Look → Photos & videos**: 1 to 6 tiles on screen as a collage, each changing
+  at a different moment, and how many videos may play at the same time. One or two stays smooth on a Pi 5.
+- Photo booth pictures join the slideshow too (turn off under Look).
 
-- **USB stick**: plug it in, then drag photos into `Smart-screen/backgrounds` in the Pi's file manager.
-- **From your computer**: `scp -r ~/Pictures/Favorites YOUR-USER@raspberrypi.local:Smart-screen/backgrounds/`
-- **A shared cloud folder** (best for a family): make a Google Drive, Dropbox or OneDrive folder everyone can add to,
-  and have the Pi sync it automatically with [rclone](https://rclone.org/):
-  ```bash
-  sudo apt install rclone
-  rclone config                      # follow the prompts; name the remote "drive"
-  rclone sync "drive:Smart Display Photos" ~/Smart-screen/backgrounds/drive    # test once
-  crontab -e                         # then add this line to sync every 30 minutes:
-  */30 * * * * rclone sync "drive:Smart Display Photos" $HOME/Smart-screen/backgrounds/drive
-  ```
-  (Google *Photos* albums can't be synced automatically anymore; Google closed that API to apps in 2025.
-  A Google *Drive* folder works.)
+### Google Drive photos
 
-Photo booth pictures join the slideshow too. Turn that off with `slideshow.include_booth_photos: false`.
+The Pi keeps a copy of one Google Drive folder (subfolders included) and checks it for changes every 30 minutes.
+Photos you add to the folder appear on the screen, and ones you delete disappear. The Pi only gets **read-only**
+access: it can never change or delete anything in your Drive.
+
+1. In Google Drive, make a folder, e.g. **Smart Screen**, and put photos and videos in it. Share it with the family
+   so everyone can add to it.
+2. Once, **at the Pi's own desktop** (a browser window opens to sign in), run in a Terminal:
+   ```bash
+   cd ~/smart-screen
+   ./deploy/connect-google-drive.sh
+   ```
+   Sign in, click **Allow**, and it lists your Drive folders.
+3. In the phone app: **Photos → Google Drive**, turn it on and type the folder name. Tap **Sync now** to see it straight away.
+
+Drive photos are marked ☁️ in the app. Remove them in Drive, not in the app.
+If the folder was shared with you by someone else, turn on **It's a folder someone shared with me**.
+(Google *Photos* albums can't be used. Google closed that to apps in 2025. A Google *Drive* folder works.)
+
+Other ways to get photos onto the Pi: drag them in from a **USB stick** with the Pi's file manager, or
+`scp -r ~/Pictures/Favorites kevin@smartscreen.local:smart-screen/backgrounds/` from a computer.
 
 ## 6. Lights
 
-Set `lights.backend` in `config.yaml`:
+Pick the light system in the app (**Settings → Lights**), or set `lights.backend` in `config.yaml`. Gestures and the
+app's **Home → Lights** panel then turn lights on and off, and with Home Assistant or Hue also set **brightness**
+and **colour** (warm, cool, red, blue…), plus **🎉 party** colours. New gesture actions: *Dim lights*,
+*Bright lights*, *Warm light*, *Cool light*, *Party colours*.
 
-- **`home_assistant`** (recommended; works with almost any smart-light brand)
+- **`alexa`**: lights you control with Alexa. See [Alexa](#alexa) below.
+- **`home_assistant`** (works with almost any smart-light brand; full brightness and colour)
   - `url`: e.g. `http://homeassistant.local:8123`
   - `token`: in Home Assistant, click your profile → *Security* → *Long-lived access tokens* → *Create token*
   - `entity_ids`: your lights, e.g. `[light.living_room, light.lamp]` (find them in *Settings → Entities*)
-- **`hue`** (Philips Hue bridge, no Home Assistant needed)
+- **`hue`** (Philips Hue bridge, no Home Assistant needed; full brightness and colour)
   - Find the bridge IP in the Hue app (*Settings → Bridges*).
   - Press the round button on the bridge, then within 30 seconds run on the Pi:
     `curl -X POST http://BRIDGE_IP/api -d '{"devicetype":"smart_display#pi"}'` and copy the `username` it returns.
   - `light_ids`: open `http://BRIDGE_IP/api/USERNAME/lights` in a browser to see the numbers.
-- **`webhook`**: any on/off URL, e.g. Shelly `http://IP/relay/0?turn=on` or Tasmota `http://IP/cm?cmnd=Power%20On`.
+- **`webhook`**: a URL for on, off, and optionally dim/bright, e.g. Shelly `http://IP/relay/0?turn=on`
+  or Tasmota `http://IP/cm?cmnd=Power%20On`.
+
+## Alexa
+
+The Smart Screen and Alexa can work in both directions.
+
+### "Alexa, turn on the photo booth" (Alexa → screen)
+
+The Pi appears in the Alexa app as smart plugs (using [fauxmo](https://github.com/n8henrie/fauxmo); everything stays
+on your Wi-Fi, with no skill or account needed). Each "plug" runs a screen action when turned on or off.
+
+1. App: **Settings → Alexa voice commands**, turn it on. The screen restarts.
+2. Say **"Alexa, discover devices"** (or Alexa app → Devices → + → Add device → Other → Discover).
+3. Try **"Alexa, turn on the photo booth"** or **"Alexa, turn off the smart screen"**.
+
+Add your own voice commands in the app: a name Alexa hears, plus what "turn on" and "turn off" do. Each one can
+also be used in Alexa **routines**, for example "when I say good night, turn off the smart screen".
+The Echo and the Pi must be on the same Wi-Fi. Most Echo models find these devices; if yours doesn't, check
+Settings → Alexa voice commands in the app for an error.
+
+### Lights in the Alexa app (screen → Alexa)
+
+If your lights only work through Alexa (no Home Assistant or Hue bridge), the screen can run **Alexa routines**
+through the free **Voice Monkey** skill (200 triggers a month for free):
+
+1. In the Alexa app, enable the **Voice Monkey** skill and link it. Then sign in at **app.voicemonkey.io**.
+2. At **app.voicemonkey.io/tokens**, click **Create Token** and copy it.
+3. At **app.voicemonkey.io/routines**, click **Add New Trigger** for each thing you want, e.g. *Screen lights on*,
+   *Screen lights off*, *Screen lights dim*, *Screen party*. Copy each trigger's **ID**.
+4. In the Alexa app: **More → Routines → +**. Under *When this happens*: **Smart Home → Alexa Voice Monkey v3 →
+   VM Routines → your trigger**. Under *Add action*: what the lights should do (on, off, 30%, a colour, a group…). Save.
+   Do this for each trigger.
+5. Phone app: **Settings → Lights → Light system: Alexa**. Paste the token, and each trigger ID next to the matching
+   button (on, off, dim, bright, warm, cool, party). Leave the ones you don't use empty.
+
+Now 👍/👎 and the app's light buttons run those routines. Each press uses one of the 200 free monthly triggers.
+
+## Vertical (portrait) screen
+
+Stand the monitor on its side, then in the app: **Look → Screen → Orientation: Portrait**. The Pi turns the picture
+and switches to a tall layout: big clock on top, weather, a taller calendar, and the photo collage behind.
+
+- If the picture is upside down, change **Monitor was turned** to the other direction.
+- If the webcam is clipped to the monitor, it's now on its side too: **Settings → Camera → Camera mounted** so hand
+  gestures and photo booth pictures come out upright.
+- If the picture doesn't turn (e.g. right after starting), restart the Pi from the app. As a fallback, set the
+  rotation in the Pi's **Menu → Preferences → Screen Configuration**.
+
+## Turning it off
+
+Use **Settings → System → Shut down** in the app (or press the Pi 5's power button **twice**). Unplug once the screen
+is dark and only the red light is on. Plug it back in to start; everything comes back on its own.
 
 ## 7. Photo booth & printer
 
@@ -285,6 +354,7 @@ The `android/` folder is a normal Android Studio project: open it, or run `./gra
 | Nothing prints | Run `lpstat -t` and check `http://localhost:631`. The screen says "Saved (printing failed)" and the log shows the error. |
 | App can't find the screen | Type the Pi's IP address instead (shown in your router's app or admin page, or run `hostname -I` on the Pi). The phone must be on the same Wi-Fi, not a guest network. |
 | App says the code didn't match | Codes last 2 minutes and allow 5 tries. Tap **Show a new code**. |
+| Camera feels slow | Make sure you're on the latest version (it asks the webcam for its fast MJPEG mode; the log shows `Camera: 1920x1080 @ 30 fps (MJPG)`). Lower `camera.width/height` to 1280x720 for more speed. |
 | Update skipped | Run `journalctl -u smart-screen-update`. Usually a file was edited on the Pi: `git status` shows which. Undo with `git checkout -- FILE`. |
 | Display looks too small/big | Use Chromium zoom: add `--force-device-scale-factor=1.25` to the kiosk command (`~/.config/labwc/autostart`). |
 

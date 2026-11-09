@@ -146,6 +146,10 @@ body.no-preview .preview-wrap { display: none; }
 .thumb { position: relative; aspect-ratio: 1; background: var(--surface-2); border-radius: 8px; overflow: hidden; }
 .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .thumb .del { position: absolute; top: 4px; right: 4px; width: 30px; height: 30px; border-radius: 50%; border: 0; background: rgba(0,0,0,0.6); color: #fff; font-size: 16px; }
+.thumb .badge { position: absolute; left: 6px; bottom: 6px; min-width: 26px; height: 26px; padding: 0 6px; border-radius: 13px; background: rgba(0,0,0,0.6); color: #fff; font-size: 13px; display: grid; place-items: center; pointer-events: none; }
+.thumb .badge.cloud { left: auto; right: 6px; top: 6px; bottom: auto; }
+.viewer video { width: 100%; height: calc(100% - 70px); object-fit: contain; background: #000; }
+code { background: var(--surface-2); padding: 6px 8px; border-radius: 8px; word-break: break-all; }
 .upload { display: block; text-align: center; padding: 18px; border: 2px dashed var(--line); border-radius: var(--radius); margin-bottom: 12px; color: var(--accent); font-weight: 600; }
 .upload input { display: none; }
 .session { display: grid; grid-template-columns: 96px 1fr; gap: 12px; padding: 12px; align-items: center; }

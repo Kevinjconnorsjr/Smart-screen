@@ -140,10 +140,11 @@ def test_gesture_runs_bound_action():
     cfg = load_config()
     bus = RecordingBus()
     mirror = Mirror(cfg, bus, Lights())
+    lights_events = lambda: [d["on"] for t, d in bus.events if t == "lights"]
     mirror.on_gesture("Thumb_Up")
-    assert wait_for(lambda: ("lights", {"on": True}) in bus.events)
+    assert wait_for(lambda: lights_events() == [True])
     mirror.on_gesture("Thumb_Down")
-    assert wait_for(lambda: ("lights", {"on": False}) in bus.events)
+    assert wait_for(lambda: lights_events() == [True, False])
 
 
 def test_photo_booth_pauses_gestures_until_done():
@@ -196,11 +197,12 @@ def test_web_serves_background_photos(tmp_path: Path):
     cfg["slideshow"].update(folders=[str(tmp_path / "bg")], cache_dir=str(tmp_path / "cache"), include_booth_photos=False)
     client = create_app(cfg, EventBus(), tmp_path / "photos", Mirror(cfg, RecordingBus(), Lights()),
                         secrets_dir=tmp_path / "s").test_client()
-    ids = client.get("/api/backgrounds").json
-    assert len(ids) == 1
-    r = client.get(f"/bg/{ids[0]}.jpg")
+    items = client.get("/api/backgrounds").json
+    assert len(items) == 1 and items[0]["type"] == "image"
+    r = client.get(f"/bg/{items[0]['id']}.jpg")
     assert r.status_code == 200 and r.mimetype == "image/jpeg"
     assert client.get("/bg/doesnotexist.jpg").status_code == 404
+    assert client.get(f"/bg/{items[0]['id']}.mp4").status_code == 404  # not a video
 
 
 # ---------- the real MediaPipe model (skipped if not downloaded) ----------

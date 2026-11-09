@@ -22,6 +22,7 @@ MASK = "••••••••"
 SECRET_KEYS = {
     ("lights", "home_assistant", "token"),
     ("lights", "hue", "username"),
+    ("lights", "alexa", "token"),
 }
 
 # Only editable on the Pi (they run commands, point at folders, or change how the server is reached).
@@ -41,7 +42,7 @@ LOCKED_KEYS = {
 
 # Changing anything under these needs a restart; everything else applies live.
 RESTART_KEYS = {
-    ("lights",), ("camera",), ("remote",),
+    ("lights",), ("camera",), ("remote",), ("alexa",),
     ("gestures", "min_score"), ("gestures", "hold_seconds"), ("gestures", "cooldown_seconds"),
     ("display", "sleep_after_minutes"), ("display", "always_on_hours"), ("display", "wake_on_hand"),
     ("slideshow", "size"),
@@ -168,6 +169,12 @@ def validate(new: dict, current: dict, defaults: dict, actions: list[str]) -> di
             raise SettingsError(f"Unknown gesture {gesture}")
         if action and action not in actions:
             raise SettingsError(f"Unknown action {action}")
+    for device in _get(out, ("alexa", "devices")) or []:
+        if not isinstance(device, dict) or not str(device.get("name", "")).strip():
+            raise SettingsError("Each Alexa device needs a name")
+        for key in ("on", "off"):
+            if device.get(key) and device[key] not in actions:
+                raise SettingsError(f"Unknown action {device[key]}")
     for feed in _get(out, ("calendar", "feeds")) or []:
         if not isinstance(feed, dict) or not isinstance(feed.get("url", ""), str):
             raise SettingsError("Each calendar needs a name and a link")

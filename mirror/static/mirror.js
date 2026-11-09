@@ -35,7 +35,7 @@ function applySettings(s) {
   tickClock();
   renderLegend();
   if (JSON.stringify(prev.messages) !== JSON.stringify(s.messages)) { msgIndex = 0; rotateMessage(); }
-  if (prev.seconds_per_photo !== s.seconds_per_photo && prev.version) later("slide", 1000, nextSlide);
+  if (prev.version) maybeRebuildTiles();
 }
 
 async function reloadSettings() {
@@ -206,59 +206,172 @@ function renderAgenda() {
   fitAgenda();
 }
 
-// Drop events from the end until the list fits on screen (no half-cut rows).
+// Drop events from the end until the list fits on screen (no half-cut rows, no empty day headings).
 function fitAgenda() {
   const card = $("agenda");
-  let rows = card.querySelectorAll(".event");
+  const box = $("events");
+  const fits = () => card.scrollHeight <= card.clientHeight + 1;
   let removed = 0;
-  while (card.scrollHeight > card.clientHeight + 1 && rows.length > 1) {
+  const dropLast = () => {
+    const rows = box.querySelectorAll(".event");
+    if (rows.length <= 1) return false;
     const last = rows[rows.length - 1];
     const group = last.parentElement;
     last.remove();
     removed++;
     if (!group.querySelector(".event")) group.remove();
-    rows = card.querySelectorAll(".event");
-  }
-  if (removed) {
-    const more = document.createElement("div");
-    more.className = "empty";
-    more.textContent = `+ ${removed} more`;
-    $("events").append(more);
-    if (card.scrollHeight > card.clientHeight + 1 && rows.length > 1) {
-      more.remove();
-      rows[rows.length - 1].remove();
-    }
-  }
+    return true;
+  };
+  while (!fits() && dropLast()) { /* keep dropping */ }
+  if (!removed) return;
+  const more = document.createElement("div");
+  more.className = "empty";
+  more.textContent = `+ ${removed} more`;
+  box.append(more);
+  while (!fits() && dropLast()) more.textContent = `+ ${removed} more`;
 }
 
-/* ---------- slideshow ---------- */
-const slides = { ids: [], i: 0, layer: 0 };
-async function nextSlide() {
-  if (settings.style === "mirror") return;
+/* ---------- slideshow: 1-6 tiles of photos and videos ---------- */
+// Tile layouts for a landscape screen as [columns, rows, [[col, row, colSpan, rowSpan], ...]].
+// On a portrait screen the same layouts are turned on their side.
+const TILE_LAYOUTS = {
+  1: [1, 1, [[1, 1, 1, 1]]],
+  2: [2, 1, [[1, 1, 1, 1], [2, 1, 1, 1]]],
+  3: [3, 2, [[1, 1, 2, 2], [3, 1, 1, 1], [3, 2, 1, 1]]],
+  4: [2, 2, [[1, 1, 1, 1], [2, 1, 1, 1], [1, 2, 1, 1], [2, 2, 1, 1]]],
+  5: [6, 2, [[1, 1, 2, 1], [3, 1, 2, 1], [5, 1, 2, 1], [1, 2, 3, 1], [4, 2, 3, 1]]],
+  6: [3, 2, [[1, 1, 1, 1], [2, 1, 1, 1], [3, 1, 1, 1], [1, 2, 1, 1], [2, 2, 1, 1], [3, 2, 1, 1]]],
+};
+const media = { pool: [], i: 0, tiles: [], key: "", paused: false };
+
+async function refillPool() {
   try {
-    if (slides.i >= slides.ids.length) {
-      slides.ids = await getJSON("/api/backgrounds");
-      slides.i = 0;
-    }
+    media.pool = await getJSON("/api/backgrounds");
   } catch (e) {
     console.warn("backgrounds failed", e);
   }
-  if (slides.ids.length) {
-    const url = `/bg/${slides.ids[slides.i++]}.jpg`;
+  media.i = 0;
+}
+
+function videosPlaying(except) {
+  return media.tiles.filter((t) => t !== except && t.item && t.item.type === "video").length;
+}
+
+async function pickItem(tile) {
+  if (media.i >= media.pool.length) await refillPool();
+  const n = media.pool.length;
+  const showing = new Set(media.tiles.filter((t) => t !== tile && t.item).map((t) => t.item.id));
+  const maxVideos = Number(settings.videos_at_once ?? 1);
+  for (let tries = 0; tries < n; tries++) {
+    if (media.i >= n) { await refillPool(); if (!media.pool.length) return null; }
+    const item = media.pool[media.i++];
+    if (showing.has(item.id) && n > media.tiles.length) continue;
+    if (item.type === "video" && videosPlaying(tile) >= maxVideos) continue;
+    return item;
+  }
+  return null;
+}
+
+function buildTiles() {
+  const box = $("tiles");
+  for (const t of media.tiles) { clearTimeout(t.timer); t.layers.forEach(clearLayer); }
+  box.replaceChildren();
+  media.tiles = [];
+  if (settings.style === "mirror") return;
+  const n = Math.max(1, Math.min(6, Number(settings.tiles) || 1));
+  const portrait = innerHeight > innerWidth;
+  let [cols, rows, cells] = TILE_LAYOUTS[n];
+  if (portrait) {
+    [cols, rows] = [rows, cols];
+    cells = cells.map(([c, r, cs, rs]) => [r, c, rs, cs]);
+  }
+  box.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+  box.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+  box.classList.toggle("many", n > 1);
+  cells.forEach(([c, r, cs, rs], i) => {
+    const el = document.createElement("div");
+    el.className = "tile";
+    el.style.gridArea = `${r} / ${c} / span ${rs} / span ${cs}`;
+    const layers = [document.createElement("div"), document.createElement("div")];
+    layers.forEach((l) => { l.className = "layer"; el.append(l); });
+    box.append(el);
+    const tile = { el, layers, cur: 0, item: null, timer: null };
+    media.tiles.push(tile);
+    // Stagger the tiles so they don't all change at the same moment.
+    tile.timer = setTimeout(() => advance(tile), i * 900);
+  });
+}
+
+function clearLayer(layer) {
+  const v = layer.querySelector("video");
+  if (v) { v.pause(); v.removeAttribute("src"); v.load(); }
+  layer.replaceChildren();
+  layer.style.backgroundImage = "";
+  layer.classList.remove("show", "img");
+}
+
+function swapIn(tile, fill) {
+  const next = tile.layers[tile.cur ^ 1];
+  const prev = tile.layers[tile.cur];
+  clearLayer(next);
+  fill(next);
+  void next.offsetWidth; // restart the drift animation
+  next.classList.add("show");
+  prev.classList.remove("show");
+  tile.cur ^= 1;
+  setTimeout(() => { if (!prev.classList.contains("show")) clearLayer(prev); }, 2600);
+}
+
+async function advance(tile) {
+  clearTimeout(tile.timer);
+  if (!media.tiles.includes(tile)) return;
+  const seconds = Math.max(5, Number(settings.seconds_per_photo) || 30);
+  const item = await pickItem(tile);
+  if (!item) { tile.timer = setTimeout(() => advance(tile), 15000); return; }
+  if (item.type === "video") {
+    const v = document.createElement("video");
+    v.muted = true;
+    v.playsInline = true;
+    v.preload = "auto";
+    v.src = `/bg/${item.id}.mp4`;
+    let started = false;
+    v.oncanplay = () => {
+      if (started) return;
+      started = true;
+      tile.item = item;
+      swapIn(tile, (layer) => layer.append(v));
+      if (!media.paused) v.play().catch(() => {});
+    };
+    v.onended = () => advance(tile);
+    v.onerror = () => { tile.timer = setTimeout(() => advance(tile), 1000); };
+    // A video that never loads shouldn't freeze the tile.
+    tile.timer = setTimeout(() => { if (!started) advance(tile); }, 15000);
+  } else {
+    const url = `/bg/${item.id}.jpg`;
     const img = new Image();
     img.onload = () => {
-      const layers = document.querySelectorAll(".bg");
-      const next = layers[slides.layer ^ 1];
-      next.style.backgroundImage = `url("${url}")`;
-      next.classList.remove("show");
-      void next.offsetWidth; // restart the drift animation
-      next.classList.add("show");
-      layers[slides.layer].classList.remove("show");
-      slides.layer ^= 1;
+      tile.item = item;
+      swapIn(tile, (layer) => { layer.classList.add("img"); layer.style.backgroundImage = `url("${url}")`; });
+      tile.timer = setTimeout(() => advance(tile), seconds * 1000);
     };
+    img.onerror = () => { tile.timer = setTimeout(() => advance(tile), 1000); };
     img.src = url;
   }
-  later("slide", Math.max(5, settings.seconds_per_photo) * 1000, nextSlide);
+}
+
+function pauseMedia(on) {
+  media.paused = on;
+  for (const v of document.querySelectorAll("#tiles video")) on ? v.pause() : v.play().catch(() => {});
+}
+
+function maybeRebuildTiles() {
+  const key = [settings.style, settings.tiles, settings.include_videos, settings.videos_at_once,
+    innerHeight > innerWidth].join("|");
+  if (key === media.key) return;
+  media.key = key;
+  media.pool = [];
+  media.i = 0;
+  buildTiles();
 }
 
 /* ---------- messages & news ---------- */
@@ -346,6 +459,7 @@ function beep(freq, ms) {
 
 function boothActive(on) {
   document.body.classList.toggle("busy", on);
+  pauseMedia(on || document.body.classList.contains("asleep")); // free the Pi for the camera
   $("booth").hidden = !on;
   if (on && settings.camera && !PREVIEW) {
     $("preview").src = "/stream.mjpg?t=" + Date.now();
@@ -391,8 +505,8 @@ function connect() {
     } catch (e) { /* try again on the next reconnect */ }
   };
 
-  on("wake", () => document.body.classList.remove("asleep"));
-  on("sleep", () => { document.body.classList.add("asleep"); showHold(null, 0); });
+  on("wake", () => { document.body.classList.remove("asleep"); pauseMedia(false); });
+  on("sleep", () => { document.body.classList.add("asleep"); showHold(null, 0); pauseMedia(true); });
   on("hold", (d) => showHold(d.name, d.progress));
   on("gesture", (d) => {
     showHold(null, 0);
@@ -439,7 +553,8 @@ async function init() {
   rotateNews();
   setInterval(rotateNews, 12 * 1000);
   setInterval(loadNews, 30 * 60 * 1000);
-  nextSlide();
+  maybeRebuildTiles();
+  addEventListener("resize", () => later("tiles", 500, maybeRebuildTiles));
   connect();
   // Re-fit the agenda whenever the layout changes size (fonts loading, weather appearing, rotation).
   let fitTimer = null;

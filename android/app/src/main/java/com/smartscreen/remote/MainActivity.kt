@@ -201,13 +201,15 @@ class MainActivity : Activity() {
                 fileCallback?.onReceiveValue(null)
                 fileCallback = callback
                 val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
-                    type = "image/*"
+                    // Photos and videos for the slideshow.
+                    type = "*/*"
+                    putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "video/*"))
                     addCategory(Intent.CATEGORY_OPENABLE)
                     putExtra(Intent.EXTRA_ALLOW_MULTIPLE, params.mode == FileChooserParams.MODE_OPEN_MULTIPLE)
                 }
                 return try {
                     @Suppress("DEPRECATION")
-                    startActivityForResult(Intent.createChooser(intent, "Choose photos"), REQUEST_PHOTOS)
+                    startActivityForResult(Intent.createChooser(intent, "Choose photos or videos"), REQUEST_PHOTOS)
                     true
                 } catch (_: ActivityNotFoundException) {
                     fileCallback = null

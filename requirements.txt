@@ -10,3 +10,4 @@ recurring-ical-events>=3
 pillow-heif>=0.18
 feedparser>=6
 ruamel.yaml>=0.18
+fauxmo>=0.8

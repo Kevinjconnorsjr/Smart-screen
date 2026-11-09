@@ -4,6 +4,9 @@
 display:
   style: photos            # photos = photo slideshow background (regular monitor)
                            # mirror = black background (for a two-way mirror build)
+  orientation: landscape   # landscape | portrait (monitor standing on its side)
+  portrait_turned: right   # portrait only: which way the monitor was turned (right | left);
+                           # if the picture is upside down, switch this
   layout: left             # left | right: which side the clock and calendar are on
   theme:
     accent_color: "#ffd36e"    # highlight color (day names, "now" badges, progress ring)
@@ -53,7 +56,29 @@ slideshow:
   folders: [backgrounds]   # put your photos in the backgrounds/ folder (subfolders are fine)
   include_booth_photos: true   # mix photo booth shots into the slideshow
   seconds_per_photo: 30
+  tiles: 1                 # photos/videos on screen at once: 1-6 (a collage when more than 1)
+  include_videos: true     # play videos from the folders too (shown silently)
+  videos_at_once: 1        # most videos playing at the same time (the Pi 5 handles 1-2 smoothly)
+  video_max_seconds: 60    # longer videos are cut to this length on the screen
   size: [1920, 1080]       # your screen's resolution; photos are resized to this once and cached
+
+cloud:                     # show a Google Drive folder (see README "Google Drive photos")
+  enabled: false
+  remote: gdrive           # made by deploy/connect-google-drive.sh
+  folder: "Smart Screen"   # the Drive folder to show (subfolders included)
+  shared_with_me: false    # true if the folder was shared with you by someone else
+  every_minutes: 30        # how often to check for new photos
+  max_file_mb: 500         # skip files bigger than this
+
+alexa:                     # "Alexa, turn on the photo booth" (see README "Alexa")
+  voice_commands: false
+  devices:                 # each shows up in the Alexa app as a smart plug with this name
+    - name: Photo booth
+      "on": photo_booth
+      "off": ""
+    - name: Smart screen
+      "on": wake
+      "off": sleep
 
 calendar:
   days_ahead: 7
@@ -81,12 +106,15 @@ camera:
   index: 0                 # which USB camera (opencv only)
   width: 1920
   height: 1080
+  fps: 30
+  rotate: 0                # 90 / 180 / 270 if the camera is mounted sideways or upside down
 
 gestures:
   model_path: models/gesture_recognizer.task
   min_score: 0.65          # how confident the model must be (0-1)
   hold_seconds: 0.8        # hold a gesture this long to fire it (stops accidental triggers)
   cooldown_seconds: 2.5    # wait after an action before another one can fire
+  max_fps: 15              # how often to look for gestures (lower = more CPU for everything else)
   # Gestures the built-in model knows:
   #   Open_Palm, Closed_Fist, Pointing_Up, Thumb_Up, Thumb_Down, Victory, ILoveYou
   # Actions: lights_on, lights_off, lights_toggle, photo_booth, wake, sleep
@@ -99,7 +127,7 @@ gestures:
     Closed_Fist: sleep
 
 lights:
-  backend: none            # none | home_assistant | hue | webhook
+  backend: none            # none | home_assistant | hue | alexa | webhook
 
   home_assistant:
     url: http://homeassistant.local:8123
@@ -115,6 +143,20 @@ lights:
     method: POST
     on_url: ""
     off_url: ""
+    urls:                  # optional extra links: dim, bright, warm, cool, party, red, blue, ...
+      dim: ""
+      bright: ""
+
+  alexa:                   # lights that live in the Alexa app, run through Alexa routines
+    token: "PASTE-VOICE-MONKEY-TOKEN"   # from app.voicemonkey.io/tokens (see README "Alexa")
+    routines:              # Voice Monkey routine trigger ID for each action you want ("" = not used)
+      "on": ""
+      "off": ""
+      dim: ""
+      bright: ""
+      warm: ""
+      cool: ""
+      party: ""
 
 photobooth:
   countdown_seconds: 3

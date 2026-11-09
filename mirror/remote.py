@@ -31,7 +31,7 @@ from PIL import Image, ImageOps
 from werkzeug.utils import secure_filename
 
 from . import settings_store
-from .backgrounds import EXTENSIONS
+from .backgrounds import EXTENSIONS, is_video
 from .config import DEFAULTS_FILE, ROOT, load_config, resolve
 
 log = logging.getLogger(__name__)
@@ -237,6 +237,9 @@ def create_remote(app_state) -> Blueprint:
             "booth_busy": bool(st.mirror.booth and st.mirror.booth.busy),
             "camera": st.camera is not None,
             "problems": st.problems,
+            "lights": st.mirror.lights.state(),
+            "cloud": st.cloud.status() if st.cloud else None,
+            "alexa": st.alexa.status() if st.alexa else None,
             "version": st.version,
             "actions": list(st.mirror.actions),
             **_system_info(),
@@ -257,6 +260,52 @@ def create_remote(app_state) -> Blueprint:
             return jsonify({"ok": False, "error": str(e)}), 500
         if r.returncode != 0:
             return jsonify({"ok": False, "error": r.stderr.strip() or "Update check failed"}), 500
+        return jsonify({"ok": True})
+
+    @bp.post("/api/remote/lights")
+    def lights():
+        body = request.get_json(silent=True) or {}
+        lights = st.mirror.lights
+        try:
+            if body.get("power") in ("on", "off", "toggle"):
+                {"on": lights.turn_on, "off": lights.turn_off, "toggle": lights.toggle}[body["power"]]()
+            if body.get("brightness") is not None:
+                lights.set_brightness(int(body["brightness"]))
+            if body.get("color"):
+                if body["color"] == "party":
+                    lights.next_party_color()
+                else:
+                    lights.set_color(str(body["color"]))
+        except Exception as e:
+            return jsonify({"ok": False, "error": f"The lights didn't respond: {e}"}), 502
+        st.bus.emit("lights", lights.state())
+        return jsonify({"ok": True, "lights": lights.state()})
+
+    @bp.get("/api/remote/cloud")
+    def cloud_status():
+        return jsonify(st.cloud.status() if st.cloud else {"installed": False})
+
+    @bp.post("/api/remote/cloud/sync")
+    def cloud_sync():
+        if not st.cloud:
+            abort(404)
+        st.cloud.sync_now()
+        return jsonify({"ok": True})
+
+    @bp.post("/api/remote/power/<what>")
+    def power(what: str):
+        # "shutdown" turns the Pi off safely (unplug once only the red light is on); "reboot" restarts it.
+        # Allowed without a password by /etc/sudoers.d/smart-screen (see deploy/install.sh).
+        command = {"shutdown": "poweroff", "reboot": "reboot"}.get(what)
+        if command is None:
+            abort(404)
+        st.bus.emit("status", {"text": "Shutting down… unplug when the screen is dark" if what == "shutdown" else "Restarting…"})
+        try:
+            r = subprocess.run(["sudo", "-n", "systemctl", command], capture_output=True, text=True, timeout=15)
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+        if r.returncode != 0:
+            return jsonify({"ok": False, "error": "The Pi didn't allow it. Run ./deploy/install.sh once more on the Pi."}), 500
         return jsonify({"ok": True})
 
     @bp.get("/api/remote/devices")
@@ -302,6 +351,10 @@ def create_remote(app_state) -> Blueprint:
         folders = st.cfg.get("slideshow", {}).get("folders") or ["backgrounds"]
         return resolve(folders[0]) / "from-phone"
 
+    def in_cloud_folder(path: Path) -> bool:
+        folders = st.cfg.get("slideshow", {}).get("folders") or ["backgrounds"]
+        return (resolve(folders[0]) / "cloud") in path.parents
+
     @bp.get("/api/remote/backgrounds")
     def bg_list():
         items = []
@@ -309,7 +362,11 @@ def create_remote(app_state) -> Blueprint:
             path = st.backgrounds.source(pid)
             if path is None or st.photos_dir in path.parents:
                 continue  # photo booth pictures are in their own tab
+            video = is_video(path)
             items.append({"id": pid, "name": path.name, "folder": path.parent.name,
+                          "type": "video" if video else "image",
+                          "state": st.backgrounds.video_state(pid) if video else "ready",
+                          "cloud": in_cloud_folder(path),
                           "modified": int(path.stat().st_mtime)})
         items.sort(key=lambda i: -i["modified"])
         return jsonify(items)
@@ -340,22 +397,25 @@ def create_remote(app_state) -> Blueprint:
                 target = folder / f"{stem}-{n}{ext}"
                 n += 1
             f.save(target)
-            try:
-                with Image.open(target) as im:
-                    im.verify()
-            except Exception:
-                target.unlink(missing_ok=True)
-                continue
+            if not is_video(target):
+                try:
+                    with Image.open(target) as im:
+                        im.verify()
+                except Exception:
+                    target.unlink(missing_ok=True)
+                    continue
             saved.append(target.name)
         st.backgrounds.list(max_age=0)
         return jsonify({"ok": bool(saved), "saved": saved,
-                        **({} if saved else {"error": "None of those files were photos"})})
+                        **({} if saved else {"error": "None of those files were photos or videos"})})
 
     @bp.delete("/api/remote/backgrounds/<photo_id>")
     def bg_delete(photo_id: str):
         path = st.backgrounds.source(photo_id)
         if path is None or st.photos_dir in path.parents:
             abort(404)
+        if in_cloud_folder(path):
+            return jsonify({"ok": False, "error": "This one comes from Google Drive - remove it there and it disappears here too"}), 400
         path.unlink(missing_ok=True)
         st.backgrounds.list(max_age=0)
         return jsonify({"ok": True})

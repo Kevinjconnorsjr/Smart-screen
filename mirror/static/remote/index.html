@@ -54,7 +54,7 @@
   </div>
 
   <div id="toast" class="toast" hidden></div>
-  <dialog id="viewer" class="viewer"><img id="viewer-img" alt=""><form method="dialog"><button class="btn">Close</button></form></dialog>
+  <dialog id="viewer" class="viewer"><img id="viewer-img" alt=""><video id="viewer-video" muted playsinline controls loop hidden></video><form method="dialog"><button class="btn" onclick="document.getElementById('viewer-video').pause()">Close</button></form></dialog>
 
   <script src="/static/remote/remote.js"></script>
 </body>

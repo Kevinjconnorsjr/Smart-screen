@@ -12,7 +12,7 @@ DIR="$(pwd)"
 
 echo "== Installing system packages"
 sudo apt-get update
-sudo apt-get install -y git curl python3-venv python3-picamera2 libegl1 libgles2 cups printer-driver-gutenprint avahi-daemon wlr-randr fonts-dejavu-core
+sudo apt-get install -y git curl python3-venv python3-picamera2 libegl1 libgles2 cups printer-driver-gutenprint avahi-daemon wlr-randr ffmpeg rclone fonts-dejavu-core
 sudo apt-get install -y chromium-browser || sudo apt-get install -y chromium
 sudo usermod -aG lpadmin "$USER"   # lets you add printers at http://localhost:631
 
@@ -39,16 +39,20 @@ echo "== Phone app support"
 # Let the phone app find this screen on the Wi-Fi.
 sudo cp deploy/smart-screen.avahi /etc/avahi/services/smart-screen.service
 sudo systemctl enable --now avahi-daemon
-# Let the app's "Check for updates" button start the updater (that one command only, nothing else).
+# Let the app's buttons run exactly these commands (and nothing else) without a password:
+# check for updates, shut down, restart.
 SUDOERS="$(mktemp)"
-echo "$USER ALL=(root) NOPASSWD: /usr/bin/systemctl start --no-block smart-screen-update.service" > "$SUDOERS"
+{
+  echo "$USER ALL=(root) NOPASSWD: /usr/bin/systemctl start --no-block smart-screen-update.service"
+  echo "$USER ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot"
+} > "$SUDOERS"
 if sudo visudo -cf "$SUDOERS" >/dev/null; then
   sudo install -m 0440 "$SUDOERS" /etc/sudoers.d/smart-screen
 fi
 rm -f "$SUDOERS"
 
 # Open the screen full-screen when the desktop starts (only one of these, so it doesn't open twice).
-KIOSK_CMD="$(grep '^Exec=' deploy/mirror-kiosk.desktop | cut -d= -f2-)"
+KIOSK_CMD="$(grep '^Exec=' deploy/mirror-kiosk.desktop | cut -d= -f2- | sed "s#__DIR__#$DIR#g")"
 if command -v labwc >/dev/null; then   # Pi OS desktop since late 2024
   mkdir -p ~/.config/labwc
   touch ~/.config/labwc/autostart
@@ -58,7 +62,7 @@ if command -v labwc >/dev/null; then   # Pi OS desktop since late 2024
   rm -f ~/.config/autostart/mirror-kiosk.desktop
 else
   mkdir -p ~/.config/autostart
-  cp deploy/mirror-kiosk.desktop ~/.config/autostart/
+  sed "s#__DIR__#$DIR#g" deploy/mirror-kiosk.desktop > ~/.config/autostart/mirror-kiosk.desktop
 fi
 
 echo
