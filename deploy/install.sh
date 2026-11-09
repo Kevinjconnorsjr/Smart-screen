@@ -3,12 +3,16 @@
 #   ./deploy/install.sh
 # Safe to run again (for example after an update that changes the service files).
 set -euo pipefail
+if [ "$(id -u)" = 0 ]; then
+  echo "Run this WITHOUT sudo:  ./deploy/install.sh   (it asks for your password when it needs it)" >&2
+  exit 1
+fi
 cd "$(dirname "$0")/.."
 DIR="$(pwd)"
 
 echo "== Installing system packages"
 sudo apt-get update
-sudo apt-get install -y git python3-venv python3-picamera2 libegl1 libgles2 cups printer-driver-gutenprint avahi-daemon wlr-randr fonts-dejavu-core
+sudo apt-get install -y git curl python3-venv python3-picamera2 libegl1 libgles2 cups printer-driver-gutenprint avahi-daemon wlr-randr fonts-dejavu-core
 sudo apt-get install -y chromium-browser || sudo apt-get install -y chromium
 sudo usermod -aG lpadmin "$USER"   # lets you add printers at http://localhost:631
 
@@ -48,7 +52,9 @@ KIOSK_CMD="$(grep '^Exec=' deploy/mirror-kiosk.desktop | cut -d= -f2-)"
 if command -v labwc >/dev/null; then   # Pi OS desktop since late 2024
   mkdir -p ~/.config/labwc
   touch ~/.config/labwc/autostart
-  grep -q 'localhost:8080' ~/.config/labwc/autostart || echo "$KIOSK_CMD &" >> ~/.config/labwc/autostart
+  # Replace any earlier version of the line (it now waits for the Smart Screen to be ready).
+  [ -f ~/.config/labwc/autostart ] && sed -i '/localhost:8080/d' ~/.config/labwc/autostart
+  echo "$KIOSK_CMD &" >> ~/.config/labwc/autostart
   rm -f ~/.config/autostart/mirror-kiosk.desktop
 else
   mkdir -p ~/.config/autostart

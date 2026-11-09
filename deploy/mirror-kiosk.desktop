@@ -1,5 +1,5 @@
 [Desktop Entry]
 Type=Application
 Name=Smart Display screen
-Exec=sh -c 'sleep 8; (chromium-browser || chromium) --kiosk --noerrdialogs --disable-infobars --incognito --autoplay-policy=no-user-gesture-required --check-for-update-interval=31536000 http://localhost:8080'
+Exec=sh -c 'n=0; until curl -fs -o /dev/null http://localhost:8080/api/pair/status || [ $n -ge 90 ]; do n=$((n+1)); sleep 2; done; B=$(command -v chromium-browser || command -v chromium); exec "$B" --kiosk --noerrdialogs --disable-infobars --incognito --autoplay-policy=no-user-gesture-required --check-for-update-interval=31536000 http://localhost:8080'
 X-GNOME-Autostart-enabled=true
