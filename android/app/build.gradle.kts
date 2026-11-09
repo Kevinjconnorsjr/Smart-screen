@@ -35,8 +35,10 @@ android {
         applicationId = "com.smartscreen.remote"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        // Each GitHub build gets the next number, so every new build is an update of the last one.
+        val build = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+        versionCode = build
+        versionName = "1.0.$build"
     }
 
     signingConfigs {
