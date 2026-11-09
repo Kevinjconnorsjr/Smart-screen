@@ -6,3 +6,5 @@ backgrounds/*
 .cache/
 __pycache__/
 .venv/
+.secrets/
+*.yaml.tmp

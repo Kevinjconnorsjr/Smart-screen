@@ -129,10 +129,14 @@ def main() -> None:
         watcher.start()
 
     display = cfg["display"]
-    app = create_app(cfg, bus, photos_dir, mirror.run, list(mirror.actions), camera=camera, version=code_version())
-    log.info("Screen at http://%s:%s", display["host"], display["port"])
+    app = create_app(cfg, bus, photos_dir, mirror, camera=camera, version=code_version(),
+                     config_path=resolve(args.config) if args.config else None)
+    host = display.get("host", "127.0.0.1")
+    if (cfg.get("remote") or {}).get("enabled", True) and host in ("127.0.0.1", "localhost"):
+        host = "0.0.0.0"  # the phone app needs to reach us; only paired phones get in (see remote.py)
+    log.info("Screen at http://localhost:%s (phone remote: http://<this Pi>:%s/remote)", display["port"], display["port"])
     try:
-        app.run(host=display["host"], port=int(display["port"]), threaded=True)
+        app.run(host=host, port=int(display["port"]), threaded=True)
     finally:
         if watcher:
             watcher.stop()

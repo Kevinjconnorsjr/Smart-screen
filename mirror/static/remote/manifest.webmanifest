@@ -1,0 +1,8 @@
+{
+  "name": "Smart Screen",
+  "short_name": "Smart Screen",
+  "start_url": "/remote",
+  "display": "standalone",
+  "background_color": "#111318",
+  "theme_color": "#111318"
+}

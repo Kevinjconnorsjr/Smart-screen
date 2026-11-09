@@ -12,6 +12,63 @@ const ACTION_LABELS = {
 
 let settings = { bindings: {}, messages: [], seconds_per_photo: 30 };
 const timers = {};
+// ?preview=1: the small live preview inside the phone app (silent, no camera, no pairing code).
+const PREVIEW = new URLSearchParams(location.search).has("preview");
+const SHOW_KEYS = ["clock", "date", "greeting", "weather", "forecast", "calendar", "messages", "news", "gesture_help"];
+
+function applySettings(s) {
+  const prev = settings;
+  settings = s;
+  const body = document.body;
+  body.classList.toggle("mirror", s.style === "mirror");
+  body.classList.toggle("layout-right", s.layout === "right");
+  const show = s.show || {};
+  for (const key of SHOW_KEYS) body.classList.toggle(`hide-${key}`, show[key] === false);
+  const theme = s.theme || {};
+  const root = document.documentElement.style;
+  const clamp = (v, lo, hi, d) => (typeof v === "number" && isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
+  if (/^#[0-9a-f]{3,8}$/i.test(theme.accent_color || "")) root.setProperty("--accent", theme.accent_color);
+  else root.removeProperty("--accent");
+  root.setProperty("--scale", clamp(theme.text_size, 0.6, 1.6, 1));
+  root.setProperty("--card-alpha", clamp(theme.card_opacity, 0, 1, 0.5));
+  root.setProperty("--photo-dim", clamp(theme.photo_dim, 0, 0.9, 0.35));
+  tickClock();
+  renderLegend();
+  if (JSON.stringify(prev.messages) !== JSON.stringify(s.messages)) { msgIndex = 0; rotateMessage(); }
+  if (prev.seconds_per_photo !== s.seconds_per_photo && prev.version) later("slide", 1000, nextSlide);
+}
+
+async function reloadSettings() {
+  try {
+    applySettings(await getJSON("/api/settings"));
+  } catch (e) {
+    console.warn("settings failed", e);
+    return;
+  }
+  loadWeather();
+  loadCalendar();
+  loadNews().then(rotateNews);
+}
+
+let pairTimer = null;
+function showPairing(d) {
+  clearInterval(pairTimer);
+  if (PREVIEW || !d.code) {
+    $("pair").hidden = true;
+    if (d.paired && !PREVIEW) showStatus("📱 Phone paired", 4000);
+    return;
+  }
+  $("pair-code").textContent = `${d.code.slice(0, 3)} ${d.code.slice(3)}`;
+  $("pair").hidden = false;
+  const until = Date.now() + d.seconds * 1000;
+  const tick = () => {
+    const left = Math.max(0, Math.round((until - Date.now()) / 1000));
+    $("pair-left").textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+    if (!left) { clearInterval(pairTimer); $("pair").hidden = true; }
+  };
+  tick();
+  pairTimer = setInterval(tick, 1000);
+}
 
 function later(name, ms, fn) {
   clearTimeout(timers[name]);
@@ -273,6 +330,7 @@ function showHold(name, progress) {
 
 let audio = null;
 function beep(freq, ms) {
+  if (PREVIEW) return;
   try {
     audio = audio || new AudioContext();
     const osc = audio.createOscillator();
@@ -289,7 +347,7 @@ function beep(freq, ms) {
 function boothActive(on) {
   document.body.classList.toggle("busy", on);
   $("booth").hidden = !on;
-  if (on && settings.camera) {
+  if (on && settings.camera && !PREVIEW) {
     $("preview").src = "/stream.mjpg?t=" + Date.now();
   } else {
     $("preview").removeAttribute("src"); // closes the stream
@@ -353,6 +411,8 @@ function connect() {
     if (d.on) { $("countdown").textContent = ""; beep(1200, 250); }
   });
   on("photo", (d) => showPhoto(d.url));
+  on("settings", reloadSettings);
+  on("pair", showPairing);
   on("status", (d) => {
     if (!$("booth").hidden && d.text.startsWith("Photo ")) $("shot-label").textContent = d.text;
     else showStatus(d.text, 5000);
@@ -361,12 +421,11 @@ function connect() {
 
 async function init() {
   try {
-    settings = await getJSON("/api/settings");
+    applySettings(await getJSON("/api/settings"));
   } catch (e) {
     console.warn("settings failed", e);
   }
-  document.body.classList.toggle("mirror", settings.style === "mirror");
-  tickClock();
+  if (PREVIEW) document.body.classList.add("preview");
   setInterval(tickClock, 1000);
   renderLegend();
   rotateMessage();

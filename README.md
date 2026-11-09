@@ -12,6 +12,8 @@ A wall display for a regular landscape monitor, run by a Raspberry Pi:
   flashes the screen white as a fill light, takes 4 photos and **prints** them as classic photo strips.
 - **Screen sleep.** The screen goes dark when nobody's using it and wakes when you raise a hand.
 - **Updates itself from GitHub.** Push a change and the Pi picks it up within 15 minutes.
+- **Android phone app.** Control the screen, change its look with a live preview, edit calendars and messages,
+  add photos from your phone, and reprint photo booth pictures. See [Phone app](#phone-app).
 
 Gesture recognition runs on the Pi itself (Google MediaPipe). No camera images leave the house.
 
@@ -207,7 +209,68 @@ All of these are in `config.yaml`; the comments in `config.example.yaml` explain
 | `display.screen_off_command` / `screen_on_command` | Set them to `deploy/screen.sh off` / `deploy/screen.sh on` to actually power the monitor off while asleep |
 | `slideshow.seconds_per_photo` | How long each background photo shows |
 | `slideshow.size` | Set to your monitor's resolution (e.g. `[2560, 1440]`) |
-| `display.host: 0.0.0.0` | Lets phones on your Wi-Fi open the display page and trigger actions, e.g. `curl -X POST http://raspberrypi.local:8080/api/action/lights_on` |
+
+## Phone app
+
+The **Smart Screen** Android app controls the screen from your phone over your home Wi-Fi.
+
+| Tab | What you can do |
+|---|---|
+| 🏠 **Home** | Live preview of the screen. Start the photo booth, lights on/off, wake/sleep. Pi temperature, free space, version. |
+| 🎨 **Look** | Background (photos or black), which side the clock and calendar are on, text size, highlight color, box darkness, photo dimming, which parts to show, clock style, slideshow speed. **Changes appear on the screen instantly.** |
+| 📅 **Content** | Greeting, rotating messages, calendars (add/remove/recolor), weather location (search by city), news feeds. |
+| 🖼️ **Photos** | Add slideshow photos straight from your phone's gallery, delete them. Browse photo booth sessions: view, **print again**, save to your phone, delete. |
+| ⚙️ **Settings** | Which gesture does what, photo booth options, sleep times, lights setup, paired phones, check for updates, restart. |
+
+### Install it
+
+1. On your Android phone, open **https://github.com/Kevinjconnorsjr/Smart-screen/releases/tag/android-app**
+2. Tap **SmartScreen.apk** to download it, then open it.
+3. Android asks to allow installing apps from your browser: tap **Settings**, turn on **Allow from this source**, go back and tap **Install**.
+   (The app isn't on the Play Store, so Android asks this once.)
+
+### Connect it (once)
+
+1. Open the app. It searches your Wi-Fi and lists **Smart Screen (smartscreen)**. Tap it.
+   If nothing shows up, type the Pi's address (e.g. `smartscreen.local` or `192.168.1.20`) and tap **Connect**.
+2. Tap **Show code on the screen**. A 6-digit code appears on the TV for 2 minutes.
+3. Type it in the app. Done: the phone stays connected from then on.
+
+Anyone else in the house can pair their phone the same way. Remove phones under **Settings → Paired phones**.
+
+### How it works (and why it's safe)
+
+- The app's screens are a web page served by the Pi (`http://<pi>:8080/remote`), so **the app updates itself
+  whenever the Pi updates from GitHub**. You only reinstall the app itself for rare changes to the app shell.
+- Only **paired** phones can do anything. A phone gets a long random key only after someone types the code that
+  was shown on the TV; 5 wrong tries cancel the code. The Pi stores only a hash of each key
+  (`.secrets/remote_devices.json`; delete that file to unpair everyone).
+- The Pi's own browser never needs pairing, and nothing is reachable from outside your home network.
+- A few settings can only be changed on the Pi itself, because they run commands or point at folders:
+  screen on/off commands, folders, the server port, and the camera type. The app shows them with a 🔒.
+- Secrets (the Home Assistant token, the Hue key) are never sent to the phone. The app shows dots,
+  and leaving them alone keeps the saved value.
+- Settings saved from the app go into `config.yaml` with your comments kept. You can still edit that file by hand.
+- Turn the remote off completely with `remote: enabled: false` in `config.yaml`.
+
+### Updating the app without uninstalling (optional)
+
+Android only installs a new version over an old one if both were signed with the same key. GitHub builds the app,
+and without a key of your own each build gets a new one, so you'd have to uninstall before installing a newer version.
+To avoid that, create a key once on any computer with Java:
+
+```bash
+keytool -genkeypair -v -keystore smart-screen.jks -alias smartscreen -keyalg RSA -keysize 2048 -validity 10000 -storetype PKCS12
+base64 -w0 smart-screen.jks > smart-screen.jks.b64     # on a Mac: base64 -i smart-screen.jks -o smart-screen.jks.b64
+```
+
+Then on GitHub: the repo → **Settings → Secrets and variables → Actions → New repository secret**, and add
+`SMART_SCREEN_KEYSTORE_B64` (the contents of the `.b64` file) and `SMART_SCREEN_KEYSTORE_PASSWORD` (the password you chose).
+Keep `smart-screen.jks` somewhere safe, and never commit it.
+
+### Building the app yourself
+
+The `android/` folder is a normal Android Studio project: open it, or run `./gradlew assembleDebug` inside it.
 
 ## 9. Troubleshooting
 
@@ -220,6 +283,8 @@ All of these are in `config.yaml`; the comments in `config.example.yaml` explain
 | Calendar empty | Open the iCal link in a browser: it should download a `.ics` file. Check the log for "Calendar … could not be loaded". |
 | Weather missing | Check `latitude`/`longitude` and that the Pi has internet. |
 | Nothing prints | Run `lpstat -t` and check `http://localhost:631`. The screen says "Saved (printing failed)" and the log shows the error. |
+| App can't find the screen | Type the Pi's IP address instead (shown in your router's app or admin page, or run `hostname -I` on the Pi). The phone must be on the same Wi-Fi, not a guest network. |
+| App says the code didn't match | Codes last 2 minutes and allow 5 tries. Tap **Show a new code**. |
 | Update skipped | Run `journalctl -u smart-screen-update`. Usually a file was edited on the Pi: `git status` shows which. Undo with `git checkout -- FILE`. |
 | Display looks too small/big | Use Chromium zoom: add `--force-device-scale-factor=1.25` to the kiosk command (`~/.config/labwc/autostart`). |
 
@@ -255,6 +320,8 @@ camera ─► mirror/camera.py ─┬─► gestures.py (MediaPipe, hold-to-fire
 web.py ─► Server-Sent Events + JSON ─► static/ page in Chromium kiosk mode
   ├─ calendar_feed.py   iCal feeds, repeating events expanded
   ├─ backgrounds.py     photo folders → screen-sized cached JPEGs
-  └─ news.py            RSS headlines
+  ├─ news.py            RSS headlines
+  └─ remote.py          phone app: pairing, settings (settings_store.py), photos, booth gallery
+android/ ─► phone app shell: finds the Pi (mDNS), shows /remote, gallery picker, downloads
 deploy/update.sh + systemd timer ─► git fast-forward from GitHub → restart → page reloads itself
 ```

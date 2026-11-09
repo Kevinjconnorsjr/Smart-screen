@@ -3,7 +3,10 @@
   --dim: rgba(255, 255, 255, 0.72);
   --faint: rgba(255, 255, 255, 0.5);
   --accent: #ffd36e;
-  --card: rgba(12, 14, 18, 0.48);
+  --card-alpha: 0.5;
+  --card: rgba(12, 14, 18, var(--card-alpha));
+  --photo-dim: 0.35;
+  --scale: 1;
   --card-edge: rgba(255, 255, 255, 0.12);
   --shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
   --font: "Inter", "Helvetica Neue", "DejaVu Sans", system-ui, sans-serif;
@@ -38,14 +41,26 @@ body {
   background:
     linear-gradient(to bottom, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0) 32%),
     linear-gradient(to top, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0) 26%),
-    linear-gradient(to right, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0) 40%);
+    linear-gradient(to right, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0) 40%),
+    rgba(0, 0, 0, calc(var(--photo-dim) - 0.2));
+}
+body.layout-right .scrim {
+  background:
+    linear-gradient(to bottom, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0) 32%),
+    linear-gradient(to top, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0) 26%),
+    linear-gradient(to left, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0) 40%),
+    rgba(0, 0, 0, calc(var(--photo-dim) - 0.2));
 }
 body.mirror .bg-wrap { display: none; }
 
 /* ---------- layout (landscape grid) ---------- */
 #dash {
   position: relative;
-  height: 100%;
+  /* Text size: scale the whole layout but keep it filling the screen exactly. */
+  width: calc(100% / var(--scale));
+  height: calc(100% / var(--scale));
+  transform: scale(var(--scale));
+  transform-origin: 0 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-rows: auto minmax(0, 1fr) auto;
@@ -58,6 +73,33 @@ body.mirror .bg-wrap { display: none; }
   transition: opacity 1.2s ease;
 }
 body.busy #dash, body.busy .hold { opacity: 0; }
+
+/* Clock and calendar on the right instead of the left. */
+body.layout-right #dash {
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "weather clock"
+    ".       agenda"
+    "footer  footer";
+}
+body.layout-right .clock { text-align: right; }
+body.layout-right .agenda { justify-self: end; }
+body.layout-right .weather { text-align: left; }
+body.layout-right .now, body.layout-right .forecast { justify-content: flex-start; }
+body.layout-right .footer { flex-direction: row-reverse; }
+body.layout-right .footer-left { text-align: right; }
+body.layout-right .footer-right { align-items: flex-start; }
+body.layout-right .legend { justify-content: flex-start; }
+
+/* Pairing code for the phone app */
+.pair {
+  position: fixed; inset: 0; z-index: 15; display: grid; place-items: center;
+  background: rgba(0, 0, 0, 0.82); text-align: center;
+}
+.pair-box { padding: 5vmin 7vmin; border-radius: 3vmin; background: rgba(20,22,28,0.9); border: 1px solid var(--card-edge); }
+.pair-title { font-size: 4vmin; color: var(--dim); }
+.pair-code { font-size: 16vmin; font-weight: 300; letter-spacing: 0.08em; margin: 2vmin 0; font-variant-numeric: tabular-nums; color: var(--accent); }
+.pair-hint { font-size: 2.8vmin; color: var(--faint); }
 
 .card {
   background: var(--card);
@@ -153,6 +195,11 @@ body.busy #dash, body.busy .hold { opacity: 0; }
 body.asleep .night { opacity: 1; }
 
 [hidden] { display: none !important; }
+
+/* Parts turned off in the settings (display.show) */
+body.hide-clock .time, body.hide-date #date, body.hide-greeting #greeting,
+body.hide-weather #weather, body.hide-forecast #forecast, body.hide-calendar #agenda,
+body.hide-messages #message, body.hide-news #news, body.hide-gesture_help #legend { display: none !important; }
 
 /* Narrow / portrait screens: stack everything. */
 @media (max-aspect-ratio: 1/1) {

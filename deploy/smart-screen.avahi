@@ -1,0 +1,11 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<!-- Announces the Smart Screen on the Wi-Fi so the phone app can find it without an IP address.
+     Installed to /etc/avahi/services/ by deploy/install.sh. Change the port if you change display.port. -->
+<service-group>
+  <name replace-wildcards="yes">Smart Screen (%h)</name>
+  <service>
+    <type>_smartscreen._tcp</type>
+    <port>8080</port>
+  </service>
+</service-group>

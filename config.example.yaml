@@ -4,6 +4,22 @@
 display:
   style: photos            # photos = photo slideshow background (regular monitor)
                            # mirror = black background (for a two-way mirror build)
+  layout: left             # left | right: which side the clock and calendar are on
+  theme:
+    accent_color: "#ffd36e"    # highlight color (day names, "now" badges, progress ring)
+    text_size: 1.0             # 0.7 (small) to 1.5 (big)
+    card_opacity: 0.5          # how dark the boxes behind the weather and calendar are (0-1)
+    photo_dim: 0.35            # darkens the photos so the text stays readable (0-1)
+  show:                    # turn parts of the screen on or off
+    clock: true
+    date: true
+    greeting: true
+    weather: true
+    forecast: true
+    calendar: true
+    messages: true
+    news: true
+    gesture_help: true
   clock_24h: false
   show_seconds: false
   greeting: "Good {part_of_day}"   # e.g. "Good morning, Connors family!" - {part_of_day} = morning/afternoon/evening
@@ -26,8 +42,12 @@ display:
   screen_off_command: ""
   screen_on_command: ""
 
-  host: 127.0.0.1          # 0.0.0.0 lets phones on your Wi-Fi open the page and trigger actions
+  host: 127.0.0.1          # with remote.enabled the server is reachable on your Wi-Fi (paired phones only)
   port: 8080
+
+remote:                    # the Smart Screen phone app (see README "Phone app")
+  enabled: true
+  name: "Smart Screen"     # how this screen shows up in the app
 
 slideshow:
   folders: [backgrounds]   # put your photos in the backgrounds/ folder (subfolders are fine)

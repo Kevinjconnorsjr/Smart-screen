@@ -8,7 +8,7 @@ DIR="$(pwd)"
 
 echo "== Installing system packages"
 sudo apt-get update
-sudo apt-get install -y git python3-venv python3-picamera2 libegl1 libgles2 cups printer-driver-gutenprint wlr-randr fonts-dejavu-core
+sudo apt-get install -y git python3-venv python3-picamera2 libegl1 libgles2 cups printer-driver-gutenprint avahi-daemon wlr-randr fonts-dejavu-core
 sudo apt-get install -y chromium-browser || sudo apt-get install -y chromium
 sudo usermod -aG lpadmin "$USER"   # lets you add printers at http://localhost:631
 
@@ -31,6 +31,18 @@ fill smart-screen-update.timer
 sudo systemctl daemon-reload
 sudo systemctl enable --now smart-screen smart-screen-update.timer
 
+echo "== Phone app support"
+# Let the phone app find this screen on the Wi-Fi.
+sudo cp deploy/smart-screen.avahi /etc/avahi/services/smart-screen.service
+sudo systemctl enable --now avahi-daemon
+# Let the app's "Check for updates" button start the updater (that one command only, nothing else).
+SUDOERS="$(mktemp)"
+echo "$USER ALL=(root) NOPASSWD: /usr/bin/systemctl start --no-block smart-screen-update.service" > "$SUDOERS"
+if sudo visudo -cf "$SUDOERS" >/dev/null; then
+  sudo install -m 0440 "$SUDOERS" /etc/sudoers.d/smart-screen
+fi
+rm -f "$SUDOERS"
+
 # Open the screen full-screen when the desktop starts (only one of these, so it doesn't open twice).
 KIOSK_CMD="$(grep '^Exec=' deploy/mirror-kiosk.desktop | cut -d= -f2-)"
 if command -v labwc >/dev/null; then   # Pi OS desktop since late 2024
@@ -49,4 +61,5 @@ echo "  1. Edit $DIR/config.yaml (weather location, calendar links, lights, prin
 echo "  2. Put photos in $DIR/backgrounds/"
 echo "  3. Reboot: sudo reboot"
 echo "Logs:     journalctl -u smart-screen -f"
+echo "Phone app: install it from https://github.com/Kevinjconnorsjr/Smart-screen/releases/tag/android-app"
 echo "Updates:  checked every 15 min (journalctl -u smart-screen-update) - or now: sudo ./deploy/update.sh"

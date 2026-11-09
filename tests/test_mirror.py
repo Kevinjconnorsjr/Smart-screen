@@ -170,18 +170,19 @@ def test_photo_booth_pauses_gestures_until_done():
 # ---------- web ----------
 
 def test_web_settings_and_action(tmp_path: Path):
-    ran = []
     cfg = load_config()
     cfg["slideshow"]["folders"] = [str(tmp_path / "bg")]
     cfg["calendar"]["feeds"] = []
     cfg["news"]["feeds"] = []
-    app = create_app(cfg, EventBus(), tmp_path, lambda a: ran.append(a) or True, ["lights_on"], version="abc-1")
+    mirror = Mirror(cfg, RecordingBus(), Lights())
+    app = create_app(cfg, EventBus(), tmp_path, mirror, version="abc-1", secrets_dir=tmp_path / "s")
     client = app.test_client()
     s = client.get("/api/settings").json
     assert s["bindings"]["Thumb_Up"] == "lights_on" and s["version"] == "abc-1" and s["camera"] is False
+    assert s["theme"]["accent_color"] and s["show"]["calendar"] is True and s["layout"] == "left"
     assert client.post("/api/action/lights_on").json == {"ok": True}
+    assert wait_for(lambda: mirror.lights.is_on)
     assert client.post("/api/action/nope").status_code == 404
-    assert ran == ["lights_on"]
     assert client.get("/api/calendar").json == []
     assert client.get("/api/news").json == []
     assert client.get("/stream.mjpg").status_code == 404
@@ -193,7 +194,8 @@ def test_web_serves_background_photos(tmp_path: Path):
     Image.new("RGB", (4000, 3000), "purple").save(tmp_path / "bg" / "beach.jpg")
     cfg = load_config()
     cfg["slideshow"].update(folders=[str(tmp_path / "bg")], cache_dir=str(tmp_path / "cache"), include_booth_photos=False)
-    client = create_app(cfg, EventBus(), tmp_path / "photos", lambda a: True, []).test_client()
+    client = create_app(cfg, EventBus(), tmp_path / "photos", Mirror(cfg, RecordingBus(), Lights()),
+                        secrets_dir=tmp_path / "s").test_client()
     ids = client.get("/api/backgrounds").json
     assert len(ids) == 1
     r = client.get(f"/bg/{ids[0]}.jpg")

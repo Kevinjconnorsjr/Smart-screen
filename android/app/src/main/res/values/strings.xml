@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Smart Screen</string>
+    <string name="setup_title">Find your Smart Screen</string>
+    <string name="setup_searching">Looking for screens on this Wi-Fi…</string>
+    <string name="setup_none_yet">None found yet. Make sure this phone is on the same Wi-Fi as the screen, and that the screen is on.</string>
+    <string name="setup_manual">Or type its address</string>
+    <string name="setup_address_hint">e.g. 192.168.1.20 or smartscreen.local</string>
+    <string name="setup_connect">Connect</string>
+    <string name="setup_help">Tip: the address is shown in the Pi\'s log and in your router\'s list of devices. It\'s the Pi\'s name or IP address; port 8080 is added for you.</string>
+    <string name="error_unreachable">Couldn\'t reach %1$s. Is the screen on, and is this phone on the same Wi-Fi?</string>
+    <string name="saving_photo">Saving to Pictures › Smart Screen</string>
+</resources>

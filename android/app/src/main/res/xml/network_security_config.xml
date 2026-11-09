@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Smart Screen runs on your home network without HTTPS (a Pi has no certificate for a
+     local address). Plain http is allowed for that; the screen protects itself with pairing. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

@@ -1,7 +1,8 @@
 """Background photo slideshow: finds photos in folders and serves screen-sized copies.
 
 Big camera photos (12-48 MP) are slow for the Pi's browser, so each photo is resized once
-to the screen size, turned the right way up, and cached.
+to the screen size, turned the right way up, and cached. Small thumbnails are made the same
+way for the phone app.
 """
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ import random
 import threading
 import time
 from pathlib import Path
+from typing import Callable
 
 from PIL import Image, ImageOps
 
@@ -25,18 +27,28 @@ except ImportError:
     HEIC = False
 
 EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"} | ({".heic", ".heif"} if HEIC else set())
+THUMB = (400, 400)
 
 
 class Backgrounds:
-    def __init__(self, folders: list[Path], cache_dir: Path, size: tuple[int, int] = (1920, 1080),
+    def __init__(self, folders: list[Path] | Callable[[], list[Path]], cache_dir: Path,
+                 size: tuple[int, int] | Callable[[], tuple[int, int]] = (1920, 1080),
                  skip_names: tuple[str, ...] = ("print.jpg",)):
-        self.folders = folders
+        self._folders = folders
         self.cache_dir = cache_dir
-        self.size = size
+        self._size = size
         self.skip_names = skip_names
         self._photos: dict[str, Path] = {}
         self._scanned_at = 0.0
         self._lock = threading.Lock()
+
+    @property
+    def folders(self) -> list[Path]:
+        return self._folders() if callable(self._folders) else self._folders
+
+    @property
+    def size(self) -> tuple[int, int]:
+        return self._size() if callable(self._size) else self._size
 
     def _scan(self) -> None:
         photos = {}
@@ -50,36 +62,43 @@ class Backgrounds:
         self._photos = photos
         self._scanned_at = time.time()
 
-    def list(self, max_age: float = 120) -> list[str]:
-        """Photo ids in random order (rescans the folders every couple of minutes)."""
+    def list(self, max_age: float = 120, shuffle: bool = True) -> list[str]:
+        """Photo ids (random order by default). Rescans the folders every couple of minutes."""
         with self._lock:
             if time.time() - self._scanned_at > max_age:
                 self._scan()
             ids = list(self._photos)
-        random.shuffle(ids)
+        if shuffle:
+            random.shuffle(ids)
         return ids
 
-    def image_path(self, photo_id: str) -> Path | None:
-        """Screen-sized JPEG for a photo id, made on first use."""
+    def source(self, photo_id: str) -> Path | None:
         with self._lock:
-            src = self._photos.get(photo_id)
-        if src is None or not src.exists():
+            path = self._photos.get(photo_id)
+        return path if path is not None and path.exists() else None
+
+    def image_path(self, photo_id: str, thumb: bool = False) -> Path | None:
+        """Screen-sized (or thumbnail) JPEG for a photo id, made on first use."""
+        src = self.source(photo_id)
+        if src is None:
             return None
+        size = THUMB if thumb else self.size
         stamp = int(src.stat().st_mtime)
-        out = self.cache_dir / f"{photo_id}-{stamp}-{self.size[0]}x{self.size[1]}.jpg"
+        out = self.cache_dir / f"{photo_id}-{stamp}-{'t' if thumb else ''}{size[0]}x{size[1]}.jpg"
         if not out.exists():
             self.cache_dir.mkdir(parents=True, exist_ok=True)
             with Image.open(src) as im:
                 im = ImageOps.exif_transpose(im).convert("RGB")
-                im.thumbnail(self._fit_box(im.size), Image.LANCZOS)
+                im.thumbnail(size if thumb else self._fit_box(im.size, size), Image.LANCZOS)
                 tmp = out.with_suffix(".tmp")
-                im.save(tmp, "JPEG", quality=85)
+                im.save(tmp, "JPEG", quality=80 if thumb else 85)
                 tmp.replace(out)
         return out
 
-    def _fit_box(self, size: tuple[int, int]) -> tuple[int, int]:
-        """Big enough to fill the screen when cropped (the page uses object-fit: cover)."""
+    @staticmethod
+    def _fit_box(size: tuple[int, int], screen: tuple[int, int]) -> tuple[int, int]:
+        """Big enough to fill the screen when cropped (the page uses background-size: cover)."""
         w, h = size
-        sw, sh = self.size
+        sw, sh = screen
         scale = max(sw / w, sh / h)
         return (max(1, round(w * scale)), max(1, round(h * scale))) if scale < 1 else (w, h)

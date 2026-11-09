@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A screen on a stand with a sun-and-mountain photo: the Smart Screen. 108dp adaptive canvas,
+     artwork kept inside the 66dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- frame -->
+    <path android:fillColor="#7B9CFF"
+        android:pathData="M29,33h50a4,4 0,0 1,4 4v30a4,4 0,0 1,-4 4h-50a4,4 0,0 1,-4 -4v-30a4,4 0,0 1,4 -4z" />
+    <!-- picture -->
+    <path android:fillColor="#111318"
+        android:pathData="M31,38h46v28h-46z" />
+    <!-- sun -->
+    <path android:fillColor="#FFD36E"
+        android:pathData="M66,47m-4,0a4,4 0,1 1,8 0a4,4 0,1 1,-8 0" />
+    <!-- mountains -->
+    <path android:fillColor="#4FC3F7"
+        android:pathData="M31,66l12,-15l8,9l6,-6l20,12z" />
+    <!-- stand -->
+    <path android:fillColor="#7B9CFF"
+        android:pathData="M50,71h8v5h-8zM42,76h24a2,2 0,0 1,0 4h-24a2,2 0,0 1,0 -4z" />
+</vector>
