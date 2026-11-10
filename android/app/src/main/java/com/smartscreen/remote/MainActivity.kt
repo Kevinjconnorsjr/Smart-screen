@@ -174,6 +174,15 @@ class MainActivity : Activity() {
         setup.visibility = View.GONE
         web.visibility = View.VISIBLE
         loading.visibility = View.VISIBLE
+        // Pairing belongs to the screen, not to one address: reuse it for this address too
+        // (e.g. the home address and the Tailscale address of the same Pi).
+        prefs.getString(KEY_TOKEN, null)?.let { token ->
+            val cookies = CookieManager.getInstance()
+            if (cookies.getCookie(baseUrl)?.contains("ss_token=") != true) {
+                cookies.setCookie(baseUrl, "ss_token=$token; Max-Age=315360000; Path=/; HttpOnly")
+                cookies.flush()
+            }
+        }
         web.loadUrl("$baseUrl/remote")
         // Don't sit on a blank page if the screen never answers.
         val token = ++loadToken
@@ -183,6 +192,16 @@ class MainActivity : Activity() {
                 showSetup(getString(R.string.error_timeout, Uri.parse(baseUrl).host ?: "The screen"))
             }
         }, 12_000)
+    }
+
+    /** Keep this phone's pairing key so it also works at the screen's other addresses. */
+    private fun rememberPairing(url: String) {
+        val token = CookieManager.getInstance().getCookie(url)
+            ?.split(";")?.map { it.trim() }
+            ?.firstOrNull { it.startsWith("ss_token=") }?.removePrefix("ss_token=")
+        if (!token.isNullOrBlank() && token != prefs.getString(KEY_TOKEN, null)) {
+            prefs.edit().putString(KEY_TOKEN, token).apply()
+        }
     }
 
     /** True on Wi-Fi or Ethernet: the screen is only reachable on the home network. */
@@ -219,6 +238,7 @@ class MainActivity : Activity() {
                 if (url.startsWith("http")) {
                     pageLoaded = true
                     loading.visibility = View.GONE
+                    rememberPairing(url)
                 }
             }
 
@@ -289,7 +309,7 @@ class MainActivity : Activity() {
 
         @JavascriptInterface
         fun chooseScreen() = runOnUiThread {
-            prefs.edit().remove(KEY_URL).remove(KEY_NAME).apply()
+            prefs.edit().remove(KEY_URL).remove(KEY_NAME).apply()  // the pairing key is kept for the new address
             web.loadUrl("about:blank")
             showSetup(null)
         }
@@ -327,6 +347,7 @@ class MainActivity : Activity() {
     companion object {
         private const val KEY_URL = "url"
         private const val KEY_NAME = "name"
+        private const val KEY_TOKEN = "token"
         private const val REQUEST_PHOTOS = 7
 
         /** "192.168.1.20", "smartscreen.local:8080", "http://x/" -> "http://host:port" (no trailing slash). */

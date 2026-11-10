@@ -382,6 +382,26 @@ The **Smart Screen** Android app controls the screen from your phone over your h
 
 Anyone else in the house can pair their phone the same way. Remove phones under **Settings → Paired phones**.
 
+### Using the app away from home (Tailscale)
+
+At home the app talks to the Pi over your Wi-Fi. To use it anywhere (5G, work, travelling), use
+[Tailscale](https://tailscale.com): a free app that makes a private, encrypted link between your own devices. Nothing on
+your home network is opened to the internet, and only devices signed in to your Tailscale account can reach the Pi.
+
+1. **On the Pi** (in a Terminal, one line at a time):
+   ```bash
+   curl -fsSL https://tailscale.com/install.sh | sh
+   sudo tailscale up
+   ```
+   It shows a link. Open it on the Pi and sign in (for example with your Google account).
+2. **On your phone:** install **Tailscale** from the Play Store, sign in with the **same** account, and turn it on.
+3. **In the Smart Screen app:** **Settings → System → Connect to a different screen**, type **`smartscreen`**
+   and tap **Connect**. (If that name doesn't work, use the Pi's Tailscale address: run `tailscale ip -4` on the Pi;
+   it starts with `100.`.)
+
+Your pairing carries over, so there's no new code to type. This works at home too, so you can keep using this address
+everywhere. Leave Tailscale switched on on the phone (it uses very little battery).
+
 ### How it works (and why it's safe)
 
 - The app's screens are a web page served by the Pi (`http://<pi>:8080/remote`), so **the app updates itself
