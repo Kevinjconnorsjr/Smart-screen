@@ -62,6 +62,9 @@ class MainActivity : Activity() {
     private val discovery by lazy { ScreenDiscovery(this, ::onScreenFound) }
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private var showingWeb = false
+    private lateinit var loading: View
+    private var loadToken = 0
+    private var pageLoaded = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -73,6 +76,7 @@ class MainActivity : Activity() {
         searching = findViewById(R.id.searching)
         errorText = findViewById(R.id.error)
         address = findViewById(R.id.address)
+        loading = findViewById(R.id.loading)
 
         // Android 15 draws apps edge-to-edge: keep content clear of the status and navigation bars.
         val root = findViewById<View>(R.id.root)
@@ -104,6 +108,8 @@ class MainActivity : Activity() {
 
     private fun showSetup(error: String?) {
         showingWeb = false
+        loadToken++
+        loading.visibility = View.GONE
         web.visibility = View.GONE
         setup.visibility = View.VISIBLE
         errorText.text = error.orEmpty()
@@ -159,10 +165,33 @@ class MainActivity : Activity() {
 
     private fun openScreen(baseUrl: String) {
         discovery.stop()
+        if (!onHomeNetwork()) {
+            showSetup(getString(R.string.error_not_wifi))
+            return
+        }
         showingWeb = true
+        pageLoaded = false
         setup.visibility = View.GONE
         web.visibility = View.VISIBLE
+        loading.visibility = View.VISIBLE
         web.loadUrl("$baseUrl/remote")
+        // Don't sit on a blank page if the screen never answers.
+        val token = ++loadToken
+        loading.postDelayed({
+            if (token == loadToken && !pageLoaded) {
+                web.stopLoading()
+                showSetup(getString(R.string.error_timeout, Uri.parse(baseUrl).host ?: "The screen"))
+            }
+        }, 12_000)
+    }
+
+    /** True on Wi-Fi or Ethernet: the screen is only reachable on the home network. */
+    private fun onHomeNetwork(): Boolean {
+        val cm = getSystemService(android.net.ConnectivityManager::class.java) ?: return true
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
+        return caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) ||
+            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) ||
+            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) // e.g. Tailscale back home
     }
 
     // ---------- the control panel ----------
@@ -184,6 +213,13 @@ class MainActivity : Activity() {
                 // Links to anywhere else (help pages, etc.) open in the normal browser.
                 try { startActivity(Intent(Intent.ACTION_VIEW, target)) } catch (_: ActivityNotFoundException) {}
                 return true
+            }
+
+            override fun onPageFinished(view: WebView, url: String) {
+                if (url.startsWith("http")) {
+                    pageLoaded = true
+                    loading.visibility = View.GONE
+                }
             }
 
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {

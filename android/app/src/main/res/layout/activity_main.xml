@@ -11,6 +11,31 @@
         android:layout_height="match_parent"
         android:visibility="gone" />
 
+    <!-- Shown while the control panel loads, so the screen is never just blank -->
+    <LinearLayout
+        android:id="@+id/loading"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/bg"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <ProgressBar
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:indeterminate="true" />
+
+        <TextView
+            android:id="@+id/loading_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/connecting"
+            android:textColor="@color/muted"
+            android:textSize="16sp" />
+    </LinearLayout>
+
     <!-- Finding / choosing a screen -->
     <ScrollView
         android:id="@+id/setup"
