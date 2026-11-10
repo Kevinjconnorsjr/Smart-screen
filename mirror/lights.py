@@ -195,17 +195,28 @@ def alexa_urls(token: str, routines: dict[str, str]) -> dict[str, str]:
             for action, device in (routines or {}).items() if device and token and "PASTE" not in token}
 
 
-def make_lights(cfg: dict) -> Lights:
+def make_lights(cfg: dict, full_cfg: dict | None = None) -> Lights:
+    """`cfg` is the lights section; `full_cfg` (the whole config) lets shared connections fill in logins."""
     backend = (cfg.get("backend") or "none").lower()
     if backend == "home_assistant":
         c = cfg["home_assistant"]
-        return HomeAssistantLights(c["url"], c["token"], c["entity_ids"])
+        url, token = c.get("url", ""), c.get("token", "")
+        if full_cfg is not None:
+            from .devices import home_assistant
+
+            url, token = home_assistant(full_cfg)
+        return HomeAssistantLights(url, token, c["entity_ids"])
     if backend == "hue":
         c = cfg["hue"]
         return HueLights(c["bridge_ip"], c["username"], c["light_ids"])
     if backend == "alexa":
         c = cfg.get("alexa") or {}
-        return ActionURLLights(alexa_urls(c.get("token", ""), c.get("routines") or {}), method="GET")
+        token = c.get("token", "")
+        if full_cfg is not None:
+            from .devices import voice_monkey_token
+
+            token = voice_monkey_token(full_cfg)
+        return ActionURLLights(alexa_urls(token, c.get("routines") or {}), method="GET")
     if backend == "webhook":
         c = cfg.get("webhook") or {}
         urls = {"on": c.get("on_url", ""), "off": c.get("off_url", ""), **(c.get("urls") or {})}

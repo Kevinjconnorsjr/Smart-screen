@@ -208,7 +208,9 @@ on your Wi-Fi, with no skill or account needed). Each "plug" runs a screen actio
 2. Say **"Alexa, discover devices"** (or Alexa app → Devices → + → Add device → Other → Discover).
 3. Try **"Alexa, turn on the photo booth"** or **"Alexa, turn off the smart screen"**.
 
-Add your own voice commands in the app: a name Alexa hears, plus what "turn on" and "turn off" do. Each one can
+Add your own voice commands in the app: a name Alexa hears, plus what "turn on" and "turn off" do. They can run
+any action, including your [devices](#devices-fans-plugs-switches-scenes) and **Show/hide cameras**
+("Alexa, turn on the cameras"). Each one can
 also be used in Alexa **routines**, for example "when I say good night, turn off the smart screen".
 The Echo and the Pi must be on the same Wi-Fi. Most Echo models find these devices; if yours doesn't, check
 Settings → Alexa voice commands in the app for an error.
@@ -229,6 +231,59 @@ through the free **Voice Monkey** skill (200 triggers a month for free):
    button (on, off, dim, bright, warm, cool, party). Leave the ones you don't use empty.
 
 Now 👍/👎 and the app's light buttons run those routines. Each press uses one of the 200 free monthly triggers.
+
+## Devices: fans, plugs, switches, scenes
+
+Anything you can switch can be added under **Settings → Devices** in the app. Each device then gets
+**on**, **off** and **on/off** actions you can give to a **gesture**, an **Alexa voice command**, or tap on the **Home** tab.
+
+| Type | What you enter | Good for |
+|---|---|---|
+| **Home Assistant** | the entity, e.g. `switch.fan`, `light.lamp`, `scene.movie_night` | anything in Home Assistant: smart plugs, TVs, scenes, scripts… |
+| **Alexa routine** | Voice Monkey trigger IDs for on and off | things that only work through Alexa (see [Alexa](#alexa)) |
+| **Web link** | a URL for on and one for off | Shelly, Tasmota, IFTTT, Node-RED… |
+
+The Home Assistant address and token, and the Voice Monkey token, are entered once under **Settings → Connections**.
+Each device has **Test on / Test off** buttons.
+
+## Cameras
+
+Show security cameras on the screen: give a gesture (or an Alexa voice command) the action **Show/hide cameras**,
+or tap **Home → Cameras → Show / hide**. They fill the screen and hide again after a minute (adjustable). You can also
+watch them in the app (👁 View).
+
+Add them in **Settings → Cameras** with a name and an address:
+
+- **Cameras with RTSP** (Reolink, Amcrest, Tapo, Eufy, Hikvision, Dahua, Annke, Wyze with RTSP…):
+  `rtsp://user:password@192.168.1.50:554/…`. The camera's app or manual shows the exact address. Use the smaller
+  "sub stream" if there is one (easier on the Pi). Many cameras need RTSP turned on in their app first.
+- **Any camera in Home Assistant**: `ha:camera.front_door` (uses Settings → Connections → Home Assistant).
+- **A web address** that shows an MJPEG stream or a snapshot `.jpg`.
+
+Ring, Blink, Nest and Arlo only stream through their own cloud, so they can't be shown directly. If one of them works
+in your Home Assistant, try `ha:camera.…`. Camera passwords stay on the Pi; the app shows them as dots.
+
+## Teach your own gestures
+
+Besides the 7 built-in gestures, you can teach the screen your own still hand poses: 🤘, three fingers, a pinch, an
+"OK" sign…
+
+1. App: **Settings → Hand gestures → Teach a new gesture**. Type a name (and an emoji if you like) and tap **Start**.
+2. Stand where you usually would. The screen counts down 3-2-1, then shows the camera with a progress bar.
+   **Hold the pose** up to the camera for about 4 seconds, moving your hand slightly so it learns small differences.
+3. It appears in the gesture list right away. Pick what it does, like any other gesture.
+
+Tips:
+- **Camera sees right now** (same page) shows what the screen recognises live, with a confidence %. Use it to check
+  a new gesture before relying on it.
+- Make taught gestures clearly different from each other and from the built-in ones. Thumb up and thumb down
+  count as different poses, so you can teach both ways round.
+- Re-teach a gesture that's unreliable by teaching it again with the same name; **Forget** removes it.
+- Movements (swipes, waves) can't be taught, only still poses.
+
+How it works: the gesture model already finds 21 points on your hand (wrist, knuckles, fingertips). Teaching records
+those points for a few seconds; afterwards, a pose that matches them closely enough counts as that gesture. Nothing is
+trained on a computer, and nothing leaves the Pi. Taught gestures are saved in `data/custom_gestures.json`.
 
 ## Vertical (portrait) screen
 
@@ -360,11 +415,11 @@ The `android/` folder is a normal Android Studio project: open it, or run `./gra
 
 ## 10. Adding features
 
-- **New action:** add a method to `Mirror` in `mirror/main.py`, register it in `self.actions`, and bind a gesture to it
-  in `config.yaml`. Examples: start music, trigger a Home Assistant scene, or start a timer.
-- **New gestures** beyond the built-in 7: train a custom model with
-  [MediaPipe Model Maker](https://ai.google.dev/edge/mediapipe/solutions/customization/gesture_recognizer)
-  and point `gestures.model_path` at it.
+- **New device or scene:** usually no code needed. Add it under Settings → Devices in the app.
+- **New action in code:** add it to `base_actions` in `Mirror` (`mirror/main.py`) and a label in `ACTION_LABELS`.
+- **New gestures:** teach them in the app (see [Teach your own gestures](#teach-your-own-gestures)). For a whole new
+  model, [MediaPipe Model Maker](https://ai.google.dev/edge/mediapipe/solutions/customization/gesture_recognizer)
+  can train one; point `gestures.model_path` at it.
 - **Try it on a laptop** without a Pi:
   ```bash
   python3 -m venv .venv && .venv/bin/pip install -r requirements.txt pytest

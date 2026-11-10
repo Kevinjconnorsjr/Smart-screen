@@ -14,6 +14,7 @@ from flask import Flask, Response, abort, jsonify, request, send_file, send_from
 
 from .backgrounds import Backgrounds
 from .calendar_feed import CalendarFeed
+from .cameras import Cameras
 from .cloud_sync import CloudSync
 from .config import ROOT, resolve
 from .screen import apply_rotation, is_portrait, transform
@@ -65,7 +66,8 @@ def _restart_soon() -> None:
 
 def create_app(cfg: dict, bus: EventBus, photos_dir: Path, mirror, camera=None, version: str = "dev",
                config_path: Path | None = None, secrets_dir: Path | None = None, restart_soon=_restart_soon,
-               problems: list[str] | None = None, start_background: bool = False, alexa=None) -> Flask:
+               problems: list[str] | None = None, start_background: bool = False, alexa=None,
+               custom=None, teacher=None) -> Flask:
     app = Flask(__name__, static_folder=str(STATIC), static_url_path="/static")
     app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 ** 3  # photo and video uploads from the phone
 
@@ -92,6 +94,13 @@ def create_app(cfg: dict, bus: EventBus, photos_dir: Path, mirror, camera=None, 
     if start_background:
         cloud.start()
         threading.Thread(target=lambda: backgrounds.list(max_age=0), daemon=True).start()  # start preparing videos
+    cameras = Cameras(cfg)
+    if custom is None:
+        from .custom_gestures import CustomGestures, Teacher
+
+        base = secrets_dir.parent if secrets_dir else ROOT  # tests keep everything in their temp folder
+        custom = CustomGestures(base / "data" / "custom_gestures.json")
+        teacher = teacher or Teacher()
     calendar = CalendarFeed(cfg.setdefault("calendar", {}))
     news = News(cfg.setdefault("news", {}))
 
@@ -115,6 +124,7 @@ def create_app(cfg: dict, bus: EventBus, photos_dir: Path, mirror, camera=None, 
         backgrounds=backgrounds, config_path=config_path or ROOT / "config.yaml",
         secrets_dir=secrets_dir or ROOT / ".secrets", restart_soon=restart_soon,
         on_settings_changed=on_settings_changed, problems=problems or [], cloud=cloud, alexa=alexa,
+        cameras=cameras, custom=custom, teacher=teacher,
     )
     app.register_blueprint(create_remote(state))
     app.extensions["smart_screen"] = state
@@ -153,7 +163,18 @@ def create_app(cfg: dict, bus: EventBus, photos_dir: Path, mirror, camera=None, 
             "problems": problems or [],
             "actions": list(mirror.actions),
             "bindings": section("gestures").get("bindings") or {},
+            "gesture_labels": custom.labels(),
+            "action_labels": mirror.action_labels(),
+            "cameras": [{"name": c.get("name", f"Camera {i + 1}")} for i, c in enumerate(cameras.list())],
         })
+
+    @app.get("/api/cameras/<int:index>.mjpg")
+    def camera_stream(index: int):
+        relay = cameras.relay(index)
+        if relay is None:
+            abort(404)
+        return Response(relay.stream(), mimetype="multipart/x-mixed-replace; boundary=frame",
+                        headers={"Cache-Control": "no-cache"})
 
     @app.get("/api/calendar")
     def calendar_events():

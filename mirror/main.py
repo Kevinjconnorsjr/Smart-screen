@@ -14,6 +14,14 @@ from .web import EventBus, create_app
 
 log = logging.getLogger("mirror")
 
+ACTION_LABELS = {
+    "lights_on": "Lights on", "lights_off": "Lights off", "lights_toggle": "Toggle lights",
+    "lights_dim": "Dim lights", "lights_bright": "Bright lights", "lights_warm": "Warm light",
+    "lights_cool": "Cool light", "lights_party": "Party colours", "photo_booth": "Photo booth",
+    "show_cameras": "Show/hide cameras", "hide_cameras": "Hide cameras",
+    "wake": "Wake screen", "sleep": "Sleep screen",
+}
+
 
 def code_version() -> str:
     """Changes on every restart, so the browser reloads itself after an update."""
@@ -33,7 +41,11 @@ class Mirror:
         self.booth = booth
         self.watcher = watcher
         self.power = power or ScreenPower({}, bus.emit)
-        self.actions = {
+        from .devices import Devices
+
+        self.devices = Devices(cfg)
+        self.cameras_shown = False
+        self.base_actions = {
             "lights_on": self.lights_on,
             "lights_off": self.lights_off,
             "lights_toggle": self.lights_toggle,
@@ -43,9 +55,48 @@ class Mirror:
             "lights_cool": lambda: self._lights(lambda: self.lights.set_color("cool")),
             "lights_party": lambda: self._lights(self.lights.next_party_color),
             "photo_booth": self.photo_booth,
+            "show_cameras": lambda: self.show_cameras(None),
+            "hide_cameras": lambda: self.show_cameras(False),
             "wake": self.power.wake,
             "sleep": self.power.sleep,
         }
+
+    @property
+    def actions(self) -> dict:
+        """Built-in actions plus one on/off/toggle action per device in the settings (always current)."""
+        from .devices import device_actions
+
+        out = dict(self.base_actions)
+        for name in device_actions(self.cfg):
+            out[name] = lambda a=name: self.run_device(a)
+        return out
+
+    def action_labels(self) -> dict[str, str]:
+        from .devices import device_actions
+
+        return {**ACTION_LABELS, **device_actions(self.cfg)}
+
+    def run_device(self, action: str) -> None:
+        on = self.devices.run(action)
+        name = (self.devices.find(action.partition(":")[2]) or {}).get("name", "Device")
+        self.bus.emit("status", {"text": f"{name} {'on' if on else 'off'}"})
+
+    def show_cameras(self, show: bool | None) -> None:
+        """Show the security cameras on the screen (None = toggle). They hide again after a while."""
+        self.cameras_shown = (not self.cameras_shown) if show is None else show
+        seconds = int(((self.cfg.get("cameras") or {}).get("show_seconds")) or 60)
+        self.bus.emit("cameras", {"show": self.cameras_shown, "seconds": seconds})
+        self._camera_timer = getattr(self, "_camera_timer", 0) + 1
+        if self.cameras_shown and seconds > 0:
+            mine = self._camera_timer
+
+            def hide_later():
+                if self._camera_timer == mine and self.cameras_shown:
+                    self.show_cameras(False)
+
+            t = threading.Timer(seconds, hide_later)
+            t.daemon = True
+            t.start()
 
     # Gesture name -> action name -> run it.
     def on_gesture(self, gesture: str) -> None:
@@ -113,9 +164,13 @@ def main() -> None:
     photos_dir = resolve(cfg["photobooth"].get("output_dir", "photos"))
     photos_dir.mkdir(parents=True, exist_ok=True)
     power = ScreenPower(cfg["display"], bus.emit)
-    mirror = Mirror(cfg, bus, make_lights(cfg["lights"]), power=power)
+    mirror = Mirror(cfg, bus, make_lights(cfg["lights"], cfg), power=power)
     power.start()
 
+    from .custom_gestures import CustomGestures, Teacher
+
+    custom = CustomGestures(resolve("data/custom_gestures.json"))
+    teacher = Teacher()
     camera = watcher = None
     problems: list[str] = []
     if not args.no_camera:
@@ -133,7 +188,7 @@ def main() -> None:
             camera.start()
             mirror.booth = PhotoBooth(camera, cfg["photobooth"], photos_dir, bus.emit)
             watcher = GestureWatcher(camera, cfg["gestures"], str(model), on_fire=mirror.on_gesture,
-                                     on_progress=mirror.on_hold)
+                                     on_progress=mirror.on_hold, custom=custom, teacher=teacher)
             mirror.watcher = watcher
             watcher.start()
         except Exception as e:
@@ -155,7 +210,8 @@ def main() -> None:
     alexa = AlexaVoice(cfg.get("alexa") or {}, int(display["port"]), resolve(".cache/alexa.json"))
     alexa.start()
     app = create_app(cfg, bus, photos_dir, mirror, camera=camera, version=code_version(), problems=problems,
-                     config_path=resolve(args.config) if args.config else None, start_background=True, alexa=alexa)
+                     config_path=resolve(args.config) if args.config else None, start_background=True, alexa=alexa,
+                     custom=custom, teacher=teacher)
     host = display.get("host", "127.0.0.1")
     if (cfg.get("remote") or {}).get("enabled", True) and host in ("127.0.0.1", "localhost"):
         host = "0.0.0.0"  # the phone app needs to reach us; only paired phones get in (see remote.py)

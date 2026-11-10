@@ -126,6 +126,33 @@ gestures:
     Open_Palm: wake
     Closed_Fist: sleep
 
+connections:               # logins shared by lights, devices and cameras (see README "Devices")
+  home_assistant:
+    url: ""                # e.g. http://homeassistant.local:8123
+    token: ""              # Home Assistant: profile -> Security -> Long-lived access tokens
+  voice_monkey:
+    token: ""              # for Alexa routines: app.voicemonkey.io/tokens
+
+devices: []                # things gestures, Alexa and the app can switch on/off (fans, plugs, scenes…)
+# Example (easiest to add in the phone app: Settings -> Devices):
+#   devices:
+#     - name: Fan
+#       type: home_assistant   # home_assistant | alexa | webhook
+#       entity_id: switch.fan  # home_assistant: e.g. switch.fan, light.lamp, scene.movie_night
+#     - name: Bedroom lamp
+#       type: alexa            # runs Alexa routines through Voice Monkey
+#       on_routine: bedroom-lamp-on-1a2b
+#       off_routine: bedroom-lamp-off-3c4d
+#     - name: Garage light
+#       type: webhook
+#       on_url: http://192.168.1.60/relay/0?turn=on
+#       off_url: http://192.168.1.60/relay/0?turn=off
+
+cameras:                   # security cameras on the screen (see README "Cameras")
+  show_seconds: 60         # how long they stay up when shown by a gesture or Alexa
+  list: []                 # e.g. - {name: Front door, url: "rtsp://user:password@192.168.1.50:554/stream2"}
+                           #      - {name: Driveway, url: "ha:camera.driveway"}
+
 lights:
   backend: none            # none | home_assistant | hue | alexa | webhook
 

@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import copy
+import re
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,8 @@ SECRET_KEYS = {
     ("lights", "home_assistant", "token"),
     ("lights", "hue", "username"),
     ("lights", "alexa", "token"),
+    ("connections", "home_assistant", "token"),
+    ("connections", "voice_monkey", "token"),
 }
 
 # Only editable on the Pi (they run commands, point at folders, or change how the server is reached).
@@ -84,9 +87,17 @@ def _matches(path: tuple, prefixes: set) -> bool:
     return any(path[: len(p)] == p for p in prefixes)
 
 
+def mask_url(url: str) -> str:
+    """rtsp://admin:secret@10.0.0.5/x -> rtsp://admin:••••••••@10.0.0.5/x"""
+    return re.sub(r"^([a-zA-Z][a-zA-Z0-9+.-]*://[^:/@]+):[^/]*@", lambda m: f"{m.group(1)}:{MASK}@", str(url or ""))
+
+
 def masked(cfg: dict) -> dict:
     """Copy of the settings that is safe to send to the phone."""
     out = copy.deepcopy(cfg)
+    for cam in _get(out, ("cameras", "list")) or []:
+        if isinstance(cam, dict) and cam.get("url"):
+            cam["url"] = mask_url(cam["url"])
     for path in SECRET_KEYS:
         value = _get(out, path)
         if value and "PASTE" not in str(value):
@@ -143,7 +154,7 @@ def _plain(value: Any, path: tuple) -> Any:
     raise SettingsError(f"{'.'.join(path)} has an unsupported value")
 
 
-def validate(new: dict, current: dict, defaults: dict, actions: list[str]) -> dict:
+def validate(new: dict, current: dict, defaults: dict, actions: list[str], gestures: set[str] | None = None) -> dict:
     """Checked copy of `new`: unknown sections dropped, locked keys and masked secrets restored."""
     if not isinstance(new, dict):
         raise SettingsError("Settings must be an object")
@@ -163,12 +174,35 @@ def validate(new: dict, current: dict, defaults: dict, actions: list[str]) -> di
     for path in SECRET_KEYS:
         if _get(out, path) == MASK:
             _set(out, path, _get(current, path))
+    old_urls = {mask_url(c.get("url", "")): c.get("url") for c in _get(current, ("cameras", "list")) or [] if isinstance(c, dict)}
+    for cam in _get(out, ("cameras", "list")) or []:
+        if isinstance(cam, dict) and MASK in str(cam.get("url", "")):
+            if cam["url"] not in old_urls:
+                raise SettingsError(f"{cam.get('name', 'Camera')}: retype the camera's password in its address")
+            cam["url"] = old_urls[cam["url"]]
     bindings = _get(out, ("gestures", "bindings")) or {}
     for gesture, action in bindings.items():
-        if gesture not in GESTURES:
+        if gesture not in (gestures or GESTURES):
             raise SettingsError(f"Unknown gesture {gesture}")
         if action and action not in actions:
             raise SettingsError(f"Unknown action {action}")
+    from .cameras import valid_source
+
+    for cam in _get(out, ("cameras", "list")) or []:
+        if not isinstance(cam, dict) or not str(cam.get("name", "")).strip():
+            raise SettingsError("Each camera needs a name")
+        if cam.get("url") and not valid_source(cam["url"]):
+            raise SettingsError(f"{cam['name']}: the address must start with rtsp://, http(s):// or ha:")
+    seen = set()
+    for device in _get(out, ("devices",)) or []:
+        name = str(device.get("name", "")).strip() if isinstance(device, dict) else ""
+        if not name:
+            raise SettingsError("Each device needs a name")
+        if name.lower() in seen:
+            raise SettingsError(f"Two devices are called {name}")
+        seen.add(name.lower())
+        if device.get("type", "home_assistant") not in ("home_assistant", "alexa", "webhook"):
+            raise SettingsError(f"{name}: unknown device type")
     for device in _get(out, ("alexa", "devices")) or []:
         if not isinstance(device, dict) or not str(device.get("name", "")).strip():
             raise SettingsError("Each Alexa device needs a name")

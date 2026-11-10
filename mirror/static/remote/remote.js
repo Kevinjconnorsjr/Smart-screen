@@ -93,7 +93,16 @@ function saveState(text, cls = "") {
 function scheduleSave() {
   saveState("Saving…");
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => { saving = saving.then(saveNow); }, 600);
+  saveTimer = setTimeout(() => { saveTimer = null; saving = saving.then(saveNow); }, 600);
+}
+// Save right away (used before testing a device or camera that was just typed in).
+function flushSave() {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    saving = saving.then(saveNow);
+  }
+  return saving;
 }
 async function saveNow() {
   try {
@@ -294,10 +303,36 @@ function renderHome() {
       el("button", { class: "action", onclick: () => { reloadPreview(); loadStatus(); toast("Refreshed"); } }, el("span", {}, "🔄"), "Refresh")),
     el("h2", {}, "Lights"),
     el("div", { class: "card", id: "lights-panel" }),
+    homeDevices(),
     el("h2", {}, "Status"),
     el("div", { class: "card" }, el("div", { id: "stats", class: "stats" })));
   drawStatus();
   drawLights();
+}
+
+function homeDevices() {
+  const devices = (get("devices") || []).filter((d) => deviceSlug(d.name));
+  const cams = (get("cameras.list") || []).filter((c) => c.url);
+  if (!devices.length && !cams.length) return null;
+  const box = el("div", {});
+  if (cams.length) {
+    box.append(el("h2", {}, "Cameras"), el("div", { class: "card" },
+      el("div", { class: "row" }, el("div", { class: "label" }, "📹 On the screen"),
+        el("div", { style: "display:flex;gap:8px" },
+          el("button", { class: "btn small", onclick: () => api("POST", "/api/action/show_cameras").catch((e) => toast(e.message)) }, "Show / hide"))),
+      ...cams.map((c, i) => el("div", { class: "row" }, el("div", { class: "label" }, c.name || `Camera ${i + 1}`),
+        el("button", { class: "btn small", onclick: () => openCamera(i) }, "👁 View")))));
+  }
+  if (devices.length) {
+    box.append(el("h2", {}, "Devices"), el("div", { class: "card" }, ...devices.map((d) => {
+      const id = deviceSlug(d.name);
+      const send = (what) => api("POST", `/api/remote/smart/${id}/${what}`).then(() => toast(`${d.name} ${what}`)).catch((e) => toast(e.message, 5000));
+      return el("div", { class: "row" }, el("div", { class: "label" }, d.name),
+        el("div", { class: "seg", style: "min-width:150px" },
+          el("button", { onclick: () => send("on") }, "On"), el("button", { onclick: () => send("off") }, "Off")));
+    })));
+  }
+  return box;
 }
 
 async function lightsCmd(body) {
@@ -602,7 +637,7 @@ function openVideo(src) {
 /* ---------- settings ---------- */
 function renderMore() {
   const page = $('[data-page="more"]');
-  const actionOptions = Object.entries(ACTIONS).filter(([k]) => !k || S.actions.includes(k));
+  const actionOptions = currentActionOptions();
   const lightsBackend = get("lights.backend") || "none";
   const lightRows = {
     none: [],
@@ -647,13 +682,10 @@ function renderMore() {
 
   page.replaceChildren(
     el("h2", {}, "Hand gestures"),
-    el("p", { class: "help" }, "Hold a gesture for about a second in front of the camera."),
-    el("div", { class: "card" }, ...Object.entries(GESTURES).map(([g, label]) =>
-      selectRow(`gestures.bindings.${g}`, label, actionOptions))),
-    el("div", { class: "card", style: "margin-top:10px" },
-      rangeRow("gestures.hold_seconds", "Hold time", { min: 0.3, max: 2, step: 0.1, fmt: (v) => `${v.toFixed(1)} s`,
-        hint: "Longer = fewer accidental triggers" }),
-      rangeRow("gestures.min_score", "Strictness", { min: 0.4, max: 0.95, step: 0.05, fmt: (v) => `${Math.round(v * 100)}%` })),
+    el("p", { class: "help" }, "Hold a gesture for about a second in front of the camera. Any gesture can switch " +
+      "lights, devices, the cameras, the photo booth…"),
+    gesturesCard(actionOptions),
+    teachCard(),
     ...section("Photo booth",
       numberRow("photobooth.countdown_seconds", "Countdown (seconds)", { min: 1, max: 10 }),
       numberRow("photobooth.shots", "Photos per session", { min: 1, max: 8 }),
@@ -671,6 +703,21 @@ function renderMore() {
       toggleRow("display.wake_on_hand", "Wake when a hand is raised")),
     el("h2", {}, "Lights"),
     el("div", { class: "card" }, lightsSelect, ...(lightRows[lightsBackend] || [])),
+    el("h2", {}, "Devices"),
+    el("p", { class: "help" }, "Fans, plugs, switches, scenes, Alexa routines… Each device can then be switched by a " +
+      "gesture, an Alexa voice command, or the Home tab."),
+    devicesCard(),
+    el("h2", {}, "Cameras"),
+    el("p", { class: "help" }, "Security cameras to show on the screen (pick a gesture for “Show/hide cameras” above)."),
+    camerasCard(),
+    ...section("Connections",
+      el("div", { class: "row stack" }, el("div", { class: "label" }, "Home Assistant",
+        el("span", { class: "hint" }, "For devices, cameras and lights in Home Assistant"))),
+      textRow("connections.home_assistant.url", "Address", { placeholder: "http://homeassistant.local:8123" }),
+      textRow("connections.home_assistant.token", "Long-lived access token", { type: "password",
+        hint: "Home Assistant → your profile → Security → Long-lived access tokens" }),
+      textRow("connections.voice_monkey.token", "Voice Monkey token (Alexa routines)", { type: "password",
+        hint: "app.voicemonkey.io → API Tokens. See README → Alexa" })),
     el("h2", {}, "Alexa voice commands"),
     el("p", { class: "help" }, "Say “Alexa, turn on the photo booth”. The screen shows up in the Alexa app as smart plugs. " +
       "After turning this on, say “Alexa, discover devices” once."),
@@ -698,6 +745,184 @@ function renderMore() {
       APP?.chooseScreen ? el("div", { class: "row" }, el("div", { class: "label" }, "Connect to a different screen"),
         el("button", { class: "btn small", onclick: () => APP.chooseScreen() }, "Switch")) : null));
   loadDevices();
+}
+
+/* ---------- actions (including devices typed in but not saved yet) ---------- */
+function deviceSlug(name) {
+  return String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+}
+function currentActionOptions() {
+  const labels = { ...ACTIONS, ...(S.actionLabels || {}) };
+  const out = [["", "Nothing"]];
+  for (const [k, l] of Object.entries(labels)) if (k && !k.startsWith("device_")) out.push([k, l]);
+  for (const d of get("devices") || []) {
+    const id = deviceSlug(d.name);
+    if (!id) continue;
+    out.push([`device_toggle:${id}`, `${d.name} on/off`], [`device_on:${id}`, `${d.name} on`], [`device_off:${id}`, `${d.name} off`]);
+  }
+  return out;
+}
+
+/* ---------- gestures: built-in + taught ---------- */
+function gesturesCard(actionOptions) {
+  const card = el("div", { class: "card" });
+  const rows = Object.entries(GESTURES).map(([g, label]) => selectRow(`gestures.bindings.${g}`, label, actionOptions));
+  for (const [gid, label] of Object.entries(S.custom || {})) {
+    const row = selectRow(`gestures.bindings.${gid}`, label, actionOptions, "Taught by you");
+    row.querySelector(".label").append(el("button", { class: "btn small danger", style: "margin-top:6px", onclick: async () => {
+      if (!confirm(`Forget the gesture ${label}?`)) return;
+      try {
+        await api("DELETE", `/api/remote/gestures/${gid}`);
+        delete S.custom[gid];
+        if (S.cfg.gestures?.bindings) delete S.cfg.gestures.bindings[gid];
+        renderMore();
+      } catch (e) { toast(e.message); }
+    } }, "Forget"));
+    rows.push(row);
+  }
+  card.append(...rows,
+    el("div", { class: "row" }, el("div", { class: "label" }, "Camera sees right now"),
+      el("span", { id: "seeing", class: "value", style: "min-width:120px" }, "…")),
+    rangeRow("gestures.hold_seconds", "Hold time", { min: 0.3, max: 2, step: 0.1, fmt: (v) => `${v.toFixed(1)} s`,
+      hint: "Longer = fewer accidental triggers" }),
+    rangeRow("gestures.min_score", "Strictness", { min: 0.4, max: 0.95, step: 0.05, fmt: (v) => `${Math.round(v * 100)}%` }));
+  return card;
+}
+
+let seeingTimer = null;
+async function pollSeeing() {
+  clearTimeout(seeingTimer);
+  const box = document.getElementById("seeing");
+  if (!box || S.page !== "more") return;
+  try {
+    const g = await api("GET", "/api/remote/gestures");
+    const s = g.seeing;
+    box.textContent = !g.camera ? "Camera off" : !s.hand ? "No hand" :
+      s.name ? `${(S.custom || {})[s.name] || GESTURES[s.name] || s.label} ${Math.round(s.score * 100)}%` : "A hand (no gesture)";
+    const t = g.teaching || {};
+    const status = document.getElementById("teach-status");
+    if (status && t.phase && t.phase !== "idle") {
+      status.textContent = t.phase === "get_ready" ? `Get ready… ${t.n}` :
+        t.phase === "recording" ? `Learning… ${Math.round((t.progress || 0) * 100)}%` :
+        t.ok ? `✅ Learned ${t.label}. Choose what it does above.` : `⚠️ ${t.error}`;
+      if (t.phase === "done" && t.ok && !(S.custom || {})[t.id]) {
+        S.custom = { ...(S.custom || {}), [t.id]: t.label };
+        setTimeout(renderMore, 1500);
+      }
+    }
+  } catch (e) { /* try again */ }
+  seeingTimer = setTimeout(pollSeeing, 1000);
+}
+
+function teachCard() {
+  const name = el("input", { type: "text", placeholder: "Name, e.g. Rock on", autocapitalize: "sentences" });
+  const emoji = el("input", { type: "text", placeholder: "🤘", style: "max-width:70px;text-align:center" });
+  const status = el("span", { id: "teach-status", class: "hint" });
+  const card = el("div", { class: "card", style: "margin-top:10px" },
+    el("div", { class: "row stack" },
+      el("div", { class: "label" }, "Teach a new gesture",
+        el("span", { class: "hint" }, "Stand where you normally would, tap Start, and hold the pose up to the camera when " +
+          "the screen counts down. It takes 4 seconds. Move your hand a little while holding it, so it learns small " +
+          "differences. Only still poses work (not swipes).")),
+      el("div", { style: "display:flex;gap:8px;width:100%" }, emoji, name),
+      el("button", { class: "btn primary", onclick: async () => {
+        if (!name.value.trim()) { toast("Give the gesture a name first"); return; }
+        try {
+          await api("POST", "/api/remote/gestures/teach", { name: name.value.trim(), emoji: emoji.value.trim() });
+          status.textContent = "Look at the screen…";
+          pollSeeing();
+        } catch (e) { toast(e.message, 5000); }
+      } }, "Start"),
+      status));
+  setTimeout(pollSeeing, 0);
+  return card;
+}
+
+/* ---------- devices ---------- */
+function devicesCard() {
+  const card = el("div", { class: "card" });
+  const draw = () => {
+    const list = get("devices") || [];
+    const rows = [];
+    list.forEach((d, i) => {
+      const upd = (k, v) => { list[i] = { ...list[i], [k]: v }; set("devices", list); };
+      const input = (k, placeholder, type = "text") => el("input", { type, value: d[k] || "", placeholder,
+        autocomplete: "off", autocapitalize: "off", oninput: (e) => upd(k, e.target.value.trim()) });
+      const type = el("select", { onchange: (e) => { upd("type", e.target.value); draw(); } },
+        [["home_assistant", "Home Assistant"], ["alexa", "Alexa routine"], ["webhook", "Web link"]].map(([v, l]) =>
+          el("option", { value: v, selected: (d.type || "home_assistant") === v }, l)));
+      const fields = {
+        home_assistant: [input("entity_id", "Entity, e.g. switch.fan or scene.movie_night")],
+        alexa: [input("on_routine", "Voice Monkey trigger ID for ON"), input("off_routine", "Trigger ID for OFF (optional)")],
+        webhook: [input("on_url", "Link for ON", "url"), input("off_url", "Link for OFF", "url")],
+      }[d.type || "home_assistant"];
+      const test = (what) => el("button", { class: "btn small", onclick: async () => {
+        try { await flushSave(); await api("POST", `/api/remote/smart/${deviceSlug(d.name)}/${what}`); toast(`${d.name} ${what}`); }
+        catch (e) { toast(e.message, 5000); }
+      } }, `Test ${what}`);
+      rows.push(el("div", { class: "item" },
+        el("div", { class: "item-head" },
+          el("input", { type: "text", value: d.name || "", placeholder: "Name, e.g. Fan", oninput: (e) => upd("name", e.target.value) }),
+          el("button", { class: "icon-btn", "aria-label": "Remove", onclick: () => {
+            if (!confirm(`Remove ${d.name || "this device"}?`)) return;
+            list.splice(i, 1); set("devices", list); draw();
+          } }, "✕")),
+        type, ...fields,
+        el("div", { style: "display:flex;gap:8px" }, test("on"), test("off"))));
+    });
+    if (!list.length) rows.push(el("div", { class: "empty-note" }, "No devices yet"));
+    rows.push(el("div", { class: "add-row" }, el("button", { class: "btn small", onclick: () => {
+      set("devices", [...list, { name: "", type: "home_assistant", entity_id: "" }]); draw();
+    } }, "+ Add a device")));
+    card.replaceChildren(...rows);
+  };
+  draw();
+  return card;
+}
+
+/* ---------- cameras ---------- */
+function camerasCard() {
+  const card = el("div", { class: "card" });
+  const draw = () => {
+    const cams = get("cameras.list") || [];
+    const rows = [];
+    cams.forEach((c, i) => {
+      const upd = (k, v) => { cams[i] = { ...cams[i], [k]: v }; set("cameras.list", cams); };
+      rows.push(el("div", { class: "item" },
+        el("div", { class: "item-head" },
+          el("input", { type: "text", value: c.name || "", placeholder: "Name, e.g. Front door", oninput: (e) => upd("name", e.target.value) }),
+          el("button", { class: "icon-btn", "aria-label": "Remove", onclick: () => {
+            if (!confirm(`Remove ${c.name || "this camera"}?`)) return;
+            cams.splice(i, 1); set("cameras.list", cams); draw();
+          } }, "✕")),
+        el("input", { type: "url", value: c.url || "", placeholder: "rtsp://user:password@192.168.1.50:554/stream2",
+          autocomplete: "off", autocapitalize: "off", oninput: (e) => upd("url", e.target.value.trim()) }),
+        el("div", {}, el("button", { class: "btn small", onclick: async () => { await flushSave(); openCamera(i); } }, "👁 View here"))));
+    });
+    if (!cams.length) rows.push(el("div", { class: "empty-note" }, "No cameras yet"));
+    rows.push(el("div", { class: "add-row" },
+      el("button", { class: "btn small", onclick: () => { set("cameras.list", [...cams, { name: "", url: "" }]); draw(); } }, "+ Add a camera")));
+    rows.push(numberRow("cameras.show_seconds", "Hide them again after (seconds)", { min: 0, max: 3600, hint: "0 = stay until hidden" }));
+    rows.push(el("details", { class: "help", style: "padding:10px 14px" }, el("summary", {}, "Which cameras work, and their address"),
+      el("p", {}, "Cameras with an RTSP stream: Reolink, Amcrest, Tapo, Eufy, Hikvision, Dahua, Annke, Wyze (RTSP firmware or bridge). " +
+        "The camera's app or manual lists its RTSP address; use the smaller “sub stream” (often ending in 1 or 2), which is lighter for the Pi."),
+      el("p", {}, "Any camera in Home Assistant: type ha: and its entity, e.g. ha:camera.front_door (needs Connections → Home Assistant)."),
+      el("p", {}, "A web address that shows an MJPEG stream or a snapshot (.jpg) also works."),
+      el("p", {}, "Ring, Blink, Nest and Arlo only stream through their own cloud, so they can't be shown directly.")));
+    card.replaceChildren(...rows);
+  };
+  draw();
+  return card;
+}
+
+function openCamera(i) {
+  $("#viewer-video").hidden = true;
+  const img = $("#viewer-img");
+  img.hidden = false;
+  img.src = `/api/cameras/${i}.mjpg?t=${Date.now()}`;
+  const dlg = $("#viewer");
+  dlg.addEventListener("close", () => img.removeAttribute("src"), { once: true });
+  dlg.showModal();
 }
 
 async function power(what) {
@@ -821,6 +1046,8 @@ async function start() {
     S.cfg = data.config;
     S.locked = new Set(data.locked);
     S.actions = data.actions;
+    S.actionLabels = data.action_labels || {};
+    S.custom = data.custom_gestures || {};
   } catch (e) {
     toast(e.message, 5000);
     return;

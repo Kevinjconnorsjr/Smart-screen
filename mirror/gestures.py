@@ -64,13 +64,17 @@ class GestureWatcher:
     """Runs the MediaPipe recognizer on camera frames in a background thread."""
 
     def __init__(self, camera, cfg: dict, model_path: str, on_fire: Callable[[str], None],
-                 on_progress: Callable[[str | None, float], None] | None = None):
+                 on_progress: Callable[[str | None, float], None] | None = None,
+                 custom=None, teacher=None):
         self.camera = camera
         self.cfg = cfg
         self.model_path = model_path
         self.on_fire = on_fire
         self.on_progress = on_progress
         self.paused = threading.Event()
+        self.custom = custom      # CustomGestures: poses taught by the user
+        self.teacher = teacher    # Teacher: collects samples while a gesture is being taught
+        self.seeing: dict = {"name": None, "score": 0.0, "hand": False}
         self.trigger = GestureTrigger(
             hold_seconds=float(cfg.get("hold_seconds", 0.8)),
             cooldown_seconds=float(cfg.get("cooldown_seconds", 2.5)),
@@ -107,7 +111,8 @@ class GestureWatcher:
             if got is None:
                 continue
             frame, last_t = got
-            if self.paused.is_set():
+            teaching = self.teacher is not None and self.teacher.active
+            if self.paused.is_set() and not teaching:
                 self.trigger.update(None, 0.0, last_t)
                 continue
             # Recognition doesn't need full resolution or every frame: ~640 px wide at up to
@@ -123,6 +128,24 @@ class GestureWatcher:
             if result.gestures and result.gestures[0]:
                 top = result.gestures[0][0]
                 name, score = top.category_name, top.score
+            if name == "None":
+                name, score = None, 0.0
+            if result.hand_landmarks:
+                from .custom_gestures import features
+
+                left = bool(result.handedness and result.handedness[0]
+                            and result.handedness[0][0].category_name == "Left")
+                vec = features(result.hand_landmarks[0], left)
+                if teaching:
+                    self.teacher.offer(vec)
+                elif self.custom is not None:
+                    cid, cscore = self.custom.match(vec)
+                    if cid and cscore >= score:  # a taught pose wins over a weaker built-in guess
+                        name, score = cid, cscore
+            self.seeing = {"name": name, "score": round(score, 2), "hand": bool(result.hand_landmarks)}
+            if teaching:
+                self.trigger.update(None, 0.0, last_t)
+                continue
             fired = self.trigger.update(name, score, last_t)
 
             if self.on_progress:

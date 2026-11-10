@@ -132,6 +132,7 @@ body.no-preview .preview-wrap { display: none; }
 .item + .item { border-top: 1px solid var(--line); }
 .item-head { display: flex; gap: 8px; align-items: center; }
 .item-head input[type="text"] { flex: 1; }
+.item select { width: 100%; padding: 9px 11px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); }
 .item input { width: 100%; padding: 9px 11px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); min-width: 0; }
 .item input[type="color"] { width: 40px; height: 38px; padding: 2px; flex: none; }
 .add-row { padding: 10px 14px; border-top: 1px solid var(--line); display: flex; gap: 8px; flex-wrap: wrap; }

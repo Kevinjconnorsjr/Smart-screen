@@ -410,14 +410,26 @@ function rotateNews() {
 }
 
 /* ---------- legend ---------- */
+function gestureLabel(name) {
+  return (settings.gesture_labels || {})[name] || GESTURE_LABELS[name] || (name || "").replace(/_/g, " ");
+}
+function gestureIcon(name) {
+  const custom = (settings.gesture_labels || {})[name];
+  return custom ? custom.split(" ")[0] : GESTURE_LABELS[name] || "✋";
+}
+function actionLabel(action) {
+  return (settings.action_labels || {})[action] || ACTION_LABELS[action] || action;
+}
+
 function renderLegend() {
   const ul = $("legend");
   ul.replaceChildren();
   for (const [gesture, action] of Object.entries(settings.bindings || {})) {
     const li = document.createElement("li");
     const b = document.createElement("b");
-    b.textContent = GESTURE_LABELS[gesture] || gesture;
-    li.append(b, " ", ACTION_LABELS[action] || action);
+    if (!action) continue;
+    b.textContent = gestureIcon(gesture);
+    li.append(b, " ", actionLabel(action));
     ul.append(li);
   }
 }
@@ -437,7 +449,7 @@ function showHold(name, progress) {
     return;
   }
   el.hidden = false;
-  $("hold-label").textContent = GESTURE_LABELS[name] || name;
+  $("hold-label").textContent = gestureIcon(name);
   $("ring").style.strokeDashoffset = String(276.5 * (1 - progress));
 }
 
@@ -489,6 +501,70 @@ function showPhoto(url) {
   });
 }
 
+/* ---------- security cameras ---------- */
+function showCameras(show) {
+  const box = $("cams");
+  const grid = $("cam-grid");
+  for (const img of grid.querySelectorAll("img")) img.removeAttribute("src"); // stop the streams
+  grid.replaceChildren();
+  const cams = settings.cameras || [];
+  if (!show || !cams.length || PREVIEW) {
+    box.hidden = true;
+    if (show && !cams.length && !PREVIEW) showStatus("No cameras set up yet (app: Settings → Cameras)", 4000);
+    return;
+  }
+  const n = cams.length;
+  const portrait = innerHeight > innerWidth;
+  const cols = n === 1 ? 1 : portrait ? (n > 4 ? 2 : 1) : n <= 4 ? 2 : 3;
+  grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+  cams.forEach((cam, i) => {
+    const wait = document.createElement("div");
+    wait.className = "cam-wait";
+    wait.textContent = "Connecting…";
+    const img = document.createElement("img");
+    img.alt = cam.name;
+    let loaded = false;
+    img.onload = () => { loaded = true; wait.remove(); };
+    img.onerror = () => { wait.textContent = "Can't reach this camera"; };
+    setTimeout(() => { if (!loaded && wait.isConnected) wait.textContent = "Can't reach this camera. Check its address in the app"; }, 15000);
+    img.src = `/api/cameras/${i}.mjpg?t=${Date.now()}`;
+    const name = document.createElement("div");
+    name.className = "cam-name";
+    name.textContent = `📹 ${cam.name}`;
+    const tile = document.createElement("div");
+    tile.className = "cam";
+    tile.append(img, wait, name);
+    grid.append(tile);
+  });
+  box.hidden = false;
+}
+
+/* ---------- teaching a gesture ---------- */
+function teach(d) {
+  if (PREVIEW) return;
+  if (d.phase === "get_ready") {
+    boothActive(true);
+    $("shot-label").textContent = `Teaching “${d.name}”: hold the pose up to the camera`;
+    showCountdown(d.n);
+  } else if (d.phase === "recording") {
+    if ($("booth").hidden) boothActive(true);
+    $("countdown").textContent = "";
+    $("shot-label").textContent = `Hold it… keep your hand still`;
+    let bar = document.querySelector("#booth .teach-bar");
+    if (!bar) {
+      bar = document.createElement("div");
+      bar.className = "teach-bar";
+      bar.append(document.createElement("span"));
+      $("booth").append(bar);
+    }
+    bar.firstChild.style.width = `${Math.round(d.progress * 100)}%`;
+  } else {
+    document.querySelector("#booth .teach-bar")?.remove();
+    boothActive(false);
+    showStatus(d.ok ? `✅ Learned ${d.label}` : `⚠️ ${d.error}`, 6000);
+  }
+}
+
 /* ---------- events from the server ---------- */
 function connect() {
   const es = new EventSource("/events");
@@ -511,7 +587,7 @@ function connect() {
   on("gesture", (d) => {
     showHold(null, 0);
     if (d.action && d.action !== "photo_booth") {
-      showStatus(`${GESTURE_LABELS[d.name] || d.name}  ${ACTION_LABELS[d.action] || d.action}`, 2000);
+      showStatus(`${gestureIcon(d.name)}  ${actionLabel(d.action)}`, 2000);
     }
   });
   on("lights", (d) => {
@@ -526,6 +602,8 @@ function connect() {
   });
   on("photo", (d) => showPhoto(d.url));
   on("settings", reloadSettings);
+  on("cameras", (d) => showCameras(d.show));
+  on("teach", teach);
   on("pair", showPairing);
   on("status", (d) => {
     if (!$("booth").hidden && d.text.startsWith("Photo ")) $("shot-label").textContent = d.text;

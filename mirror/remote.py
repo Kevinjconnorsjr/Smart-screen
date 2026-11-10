@@ -238,6 +238,10 @@ def create_remote(app_state) -> Blueprint:
             "camera": st.camera is not None,
             "problems": st.problems,
             "lights": st.mirror.lights.state(),
+            "seeing": seeing(),
+            "teaching": dict(teach_state),
+            "devices": {d: on for d, on in st.mirror.devices.state.items()},
+            "cameras_shown": st.mirror.cameras_shown,
             "cloud": st.cloud.status() if st.cloud else None,
             "alexa": st.alexa.status() if st.alexa else None,
             "version": st.version,
@@ -324,7 +328,9 @@ def create_remote(app_state) -> Blueprint:
             "config": settings_store.masked(st.cfg),
             "locked": [".".join(p) for p in settings_store.LOCKED_KEYS],
             "actions": list(st.mirror.actions),
+            "action_labels": st.mirror.action_labels(),
             "gestures": sorted(settings_store.GESTURES),
+            "custom_gestures": st.custom.labels(),
         })
 
     @bp.put("/api/remote/config")
@@ -334,7 +340,12 @@ def create_remote(app_state) -> Blueprint:
             return jsonify({"ok": False, "error": "Expected settings"}), 400
         defaults = load_config(DEFAULTS_FILE)  # the example file = the list of known settings
         try:
-            new = settings_store.validate(body, st.cfg, defaults, list(st.mirror.actions))
+            from .devices import device_actions
+
+            # Actions are checked against the NEW settings, so a device added in the same save can be used.
+            actions = list(st.mirror.base_actions) + list(device_actions(body))
+            new = settings_store.validate(body, st.cfg, defaults, actions,
+                                          gestures=settings_store.GESTURES | set(st.custom.gestures))
             paths = settings_store.save(st.config_path, DEFAULTS_FILE, st.cfg, new)
         except settings_store.SettingsError as e:
             return jsonify({"ok": False, "error": str(e)}), 400
@@ -345,6 +356,97 @@ def create_remote(app_state) -> Blueprint:
             st.restart_soon()
         return jsonify({"ok": True, "changed": [".".join(p) for p in paths],
                         "applied": "restart" if restart_needed else ("live" if paths else "unchanged")})
+
+    # ---------- gestures you teach ----------
+    teach_state: dict = {"phase": "idle"}
+
+    def seeing() -> dict:
+        w = st.mirror.watcher
+        if w is None:
+            return {"name": None, "label": "", "score": 0, "hand": False}
+        now = dict(w.seeing)
+        labels = {**st.custom.labels()}
+        now["label"] = labels.get(now.get("name"), (now.get("name") or "").replace("_", " "))
+        return now
+
+    @bp.get("/api/remote/gestures")
+    def gestures_list():
+        return jsonify({"builtin": sorted(settings_store.GESTURES), "custom": st.custom.labels(),
+                        "seeing": seeing(), "teaching": dict(teach_state),
+                        "camera": st.mirror.watcher is not None})
+
+    @bp.post("/api/remote/gestures/teach")
+    def gestures_teach():
+        from .custom_gestures import SAMPLES_WANTED
+
+        body = request.get_json(silent=True) or {}
+        name = str(body.get("name", "")).strip()
+        if not name:
+            return jsonify({"ok": False, "error": "Give the gesture a name"}), 400
+        if st.mirror.watcher is None:
+            return jsonify({"ok": False, "error": "The camera is off, so gestures can't be taught right now"}), 409
+        if teach_state.get("phase") in ("get_ready", "recording"):
+            return jsonify({"ok": False, "error": "Already teaching a gesture"}), 409
+        emoji = str(body.get("emoji", "")).strip()
+
+        def session():
+            bus, teacher = st.bus, st.teacher
+            st.mirror.power.activity()
+            try:
+                for n in (3, 2, 1):
+                    teach_state.update(phase="get_ready", name=name, n=n, progress=0)
+                    bus.emit("teach", {"phase": "get_ready", "name": name, "n": n})
+                    time.sleep(1)
+                teacher.start()
+                started = time.monotonic()
+                while teacher.count < SAMPLES_WANTED and time.monotonic() - started < 10:
+                    progress = round(teacher.count / SAMPLES_WANTED, 2)
+                    teach_state.update(phase="recording", progress=progress)
+                    bus.emit("teach", {"phase": "recording", "name": name, "progress": progress})
+                    time.sleep(0.25)
+                samples = teacher.stop()
+                gid = st.custom.add(name, emoji, samples)
+                teach_state.update(phase="done", ok=True, id=gid, label=st.custom.labels()[gid], error="")
+                bus.emit("teach", {"phase": "done", "ok": True, "label": st.custom.labels()[gid]})
+                bus.emit("settings", {})
+            except Exception as e:
+                teacher.stop()
+                teach_state.update(phase="done", ok=False, error=str(e))
+                bus.emit("teach", {"phase": "done", "ok": False, "error": str(e)})
+
+        teach_state.clear()
+        teach_state.update(phase="get_ready", name=name, n=3, progress=0)
+        threading.Thread(target=session, name="teach", daemon=True).start()
+        return jsonify({"ok": True})
+
+    @bp.delete("/api/remote/gestures/<gid>")
+    def gestures_delete(gid: str):
+        if not st.custom.remove(gid):
+            abort(404)
+        bindings = (st.cfg.get("gestures") or {}).get("bindings") or {}
+        if gid in bindings:  # forget what it was linked to, in the running settings and in config.yaml
+            old = settings_store.copy.deepcopy(st.cfg)
+            del bindings[gid]
+            settings_store.save(st.config_path, DEFAULTS_FILE, old, st.cfg)
+        st.bus.emit("settings", {})
+        return jsonify({"ok": True})
+
+    # ---------- devices & cameras ----------
+    @bp.post("/api/remote/smart/<did>/<what>")
+    def device_switch(did: str, what: str):
+        if what not in ("on", "off", "toggle"):
+            abort(404)
+        try:
+            on = st.mirror.devices.run(f"device_{what}:{did}")
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 502
+        return jsonify({"ok": True, "on": on})
+
+    @bp.get("/api/remote/cameras")
+    def cameras_list():
+        return jsonify({"cameras": [{"index": i, "name": c.get("name", f"Camera {i + 1}")}
+                                    for i, c in enumerate(st.cameras.list())],
+                        "ffmpeg": bool(st.cameras.ffmpeg), "shown": st.mirror.cameras_shown})
 
     # ---------- background photos ----------
     def upload_dir() -> Path:
