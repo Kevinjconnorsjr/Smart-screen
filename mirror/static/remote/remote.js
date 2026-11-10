@@ -313,15 +313,18 @@ function renderHome() {
 function homeDevices() {
   const devices = (get("devices") || []).filter((d) => deviceSlug(d.name));
   const cams = (get("cameras.list") || []).filter((c) => c.url);
-  if (!devices.length && !cams.length) return null;
+  const blinkCams = (S.status?.blink?.state === "signed_in" ? S.status.blink.cameras : []) || [];
+  if (!devices.length && !cams.length && !blinkCams.length) return null;
   const box = el("div", {});
-  if (cams.length) {
+  if (cams.length || blinkCams.length) {
     box.append(el("h2", {}, "Cameras"), el("div", { class: "card" },
       el("div", { class: "row" }, el("div", { class: "label" }, "📹 On the screen"),
         el("div", { style: "display:flex;gap:8px" },
           el("button", { class: "btn small", onclick: () => api("POST", "/api/action/show_cameras").catch((e) => toast(e.message)) }, "Show / hide"))),
       ...cams.map((c, i) => el("div", { class: "row" }, el("div", { class: "label" }, c.name || `Camera ${i + 1}`),
-        el("button", { class: "btn small", onclick: () => openCamera(i) }, "👁 View")))));
+        el("button", { class: "btn small", onclick: () => openCamera(i) }, "👁 View"))),
+      ...blinkCams.map((c, i) => el("div", { class: "row" }, el("div", { class: "label" }, `${c.name} (Blink)`),
+        el("button", { class: "btn small", onclick: () => openBlink(i) }, "👁 View")))));
   }
   if (devices.length) {
     box.append(el("h2", {}, "Devices"), el("div", { class: "card" }, ...devices.map((d) => {
@@ -396,6 +399,8 @@ function drawStatus() {
 async function loadStatus() {
   try {
     S.status = await api("GET", "/api/remote/status");
+    const blinkReady = S.status.blink?.state === "signed_in";
+    if (S.page === "home" && blinkReady !== !!S.blinkShown) { S.blinkShown = blinkReady; renderHome(); }
     drawStatus();
     drawLights();
   } catch (e) { /* shown elsewhere */ }
@@ -710,6 +715,8 @@ function renderMore() {
     el("h2", {}, "Cameras"),
     el("p", { class: "help" }, "Security cameras to show on the screen (pick a gesture for “Show/hide cameras” above)."),
     camerasCard(),
+    el("h2", {}, "Blink cameras"),
+    blinkCard(),
     ...section("Connections",
       el("div", { class: "row stack" }, el("div", { class: "label" }, "Home Assistant",
         el("span", { class: "hint" }, "For devices, cameras and lights in Home Assistant"))),
@@ -908,11 +915,81 @@ function camerasCard() {
         "The camera's app or manual lists its RTSP address; use the smaller “sub stream” (often ending in 1 or 2), which is lighter for the Pi."),
       el("p", {}, "Any camera in Home Assistant: type ha: and its entity, e.g. ha:camera.front_door (needs Connections → Home Assistant)."),
       el("p", {}, "A web address that shows an MJPEG stream or a snapshot (.jpg) also works."),
-      el("p", {}, "Ring, Blink, Nest and Arlo only stream through their own cloud, so they can't be shown directly.")));
+      el("p", {}, "Blink: use the Blink cameras section below. Ring, Nest and Arlo only stream through their own cloud, so they can't be shown directly.")));
     card.replaceChildren(...rows);
   };
   draw();
   return card;
+}
+
+/* ---------- Blink ---------- */
+function blinkCard() {
+  const card = el("div", { class: "card" }, el("div", { class: "empty-note" }, "…"));
+  const draw = async () => {
+    let b;
+    try { b = await api("GET", "/api/remote/blink"); } catch (e) { card.replaceChildren(el("div", { class: "empty-note" }, e.message)); return; }
+    const err = b.error ? el("div", { class: "row" }, el("span", { class: "error" }, `⚠️ ${b.error}`)) : null;
+    if (b.state === "unavailable") { card.replaceChildren(err || el("div", { class: "empty-note" }, "Blink isn't available")); return; }
+    if (b.state === "needs_code") {
+      const code = el("input", { type: "text", inputmode: "numeric", autocomplete: "one-time-code", placeholder: "Code from Blink" });
+      card.replaceChildren(el("div", { class: "row stack" },
+        el("div", { class: "label" }, "Enter the code Blink just sent you", el("span", { class: "hint" }, "Check your email or texts")),
+        code, el("button", { class: "btn primary", onclick: async () => {
+          try { await api("POST", "/api/remote/blink/verify", { code: code.value }); toast("Blink connected"); draw(); }
+          catch (e) { toast(e.message, 5000); }
+        } }, "Verify")), err);
+      return;
+    }
+    if (b.state !== "signed_in") {
+      const user = el("input", { type: "email", placeholder: "Blink email", autocomplete: "username", autocapitalize: "off" });
+      const pass = el("input", { type: "password", placeholder: "Blink password", autocomplete: "current-password" });
+      card.replaceChildren(el("div", { class: "row stack" },
+        el("div", { class: "label" }, "Sign in to Blink",
+          el("span", { class: "hint" }, "Your password is only used to sign in; the Pi keeps just Blink's access key.")),
+        user, pass, el("button", { class: "btn primary", onclick: async (ev) => {
+          ev.target.disabled = true;
+          try { await api("POST", "/api/remote/blink/login", { username: user.value, password: pass.value }); draw(); }
+          catch (e) { toast(e.message, 5000); ev.target.disabled = false; }
+        } }, "Sign in")), err);
+      return;
+    }
+    const rows = b.cameras.map((c, i) => el("div", { class: "row" },
+      el("div", { class: "label" }, `📷 ${c.name}`, el("span", { class: "hint" },
+        [c.battery ? `Battery ${c.battery}` : "", c.last_motion ? `motion ${new Date(c.last_motion).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""]
+          .filter(Boolean).join(" · "))),
+      el("div", { style: "display:flex;gap:6px" },
+        el("button", { class: "btn small", onclick: () => openBlink(i) }, "👁"),
+        el("button", { class: "btn small", onclick: async (ev) => {
+          ev.target.disabled = true; toast("Asking the camera for a new picture…");
+          try { await api("POST", `/api/remote/blink/${i}/snap`); openBlink(i); } catch (e) { toast(e.message, 5000); }
+          ev.target.disabled = false;
+        } }, "📸 New"))));
+    card.replaceChildren(
+      ...(rows.length ? rows : [el("div", { class: "empty-note" }, "Signed in, but no cameras found")]),
+      toggleRow("blink.motion_popups", "Pop up on motion", "Shows the new picture when a camera records motion (Blink must be armed)"),
+      numberRow("blink.popup_seconds", "Pop-up stays for (seconds)", { min: 5, max: 600 }),
+      numberRow("blink.check_every_seconds", "Check for motion every (seconds)", { min: 30, max: 3600, hint: "60 or more is kinder to Blink" }),
+      toggleRow("blink.new_picture_on_show", "New pictures when cameras are shown", "Uses some battery each time"),
+      toggleRow("blink.live_view", "Live video (experimental)", "Blink's unofficial live stream; drains battery cameras quickly"),
+      err,
+      el("div", { class: "row" }, el("div", { class: "label" }, "Blink account"),
+        el("button", { class: "btn small danger", onclick: async () => {
+          if (!confirm("Sign out of Blink on the screen?")) return;
+          await api("POST", "/api/remote/blink/logout").catch((e) => toast(e.message)); draw();
+        } }, "Sign out")));
+  };
+  draw();
+  return card;
+}
+
+function openBlink(i) {
+  $("#viewer-video").hidden = true;
+  const img = $("#viewer-img");
+  img.hidden = false;
+  img.src = get("blink.live_view") ? `/api/blink/${i}.mjpg?t=${Date.now()}` : `/api/blink/${i}.jpg?t=${Date.now()}`;
+  const dlg = $("#viewer");
+  dlg.addEventListener("close", () => img.removeAttribute("src"), { once: true });
+  dlg.showModal();
 }
 
 function openCamera(i) {

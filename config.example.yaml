@@ -126,6 +126,13 @@ gestures:
     Open_Palm: wake
     Closed_Fist: sleep
 
+blink:                     # Blink cameras (sign in from the phone app: Settings -> Blink)
+  motion_popups: true      # show a camera's new picture when it records motion (system must be armed)
+  popup_seconds: 20        # how long the pop-up stays
+  check_every_seconds: 60  # how often to ask Blink for motion (60 or more is recommended)
+  new_picture_on_show: false  # take fresh pictures when the cameras are shown (uses battery)
+  live_view: false         # experimental: live video instead of pictures (drains battery cameras)
+
 connections:               # logins shared by lights, devices and cameras (see README "Devices")
   home_assistant:
     url: ""                # e.g. http://homeassistant.local:8123

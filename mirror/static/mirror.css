@@ -203,6 +203,16 @@ body.asleep .night { opacity: 1; }
   background: rgba(0,0,0,0.55); padding: 0.4vmin 1.4vmin; border-radius: 99px; }
 .cam .cam-wait { position: absolute; color: var(--faint); font-size: 2.4vmin; }
 
+/* Blink motion pop-up (corner card, doesn't cover the clock) */
+.motion { position: fixed; right: 3vmin; bottom: 3vmin; z-index: 9; margin: 0; width: min(46vw, 70vmin);
+  background: #0b0c10; border: 1px solid var(--card-edge); border-radius: 2vmin; overflow: hidden;
+  box-shadow: 0 2vmin 6vmin rgba(0,0,0,0.6); animation: pop-in 0.5s ease-out; }
+.motion img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #111; }
+.motion figcaption { padding: 1.4vmin 2vmin; font-size: 2.6vmin; }
+.motion figcaption b { color: var(--accent); }
+@keyframes pop-in { from { transform: translateY(4vmin); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (max-aspect-ratio: 1/1) { .motion { left: 3vmin; right: 3vmin; width: auto; } }
+
 /* Teaching a gesture: progress bar over the live preview */
 .teach-bar { position: absolute; left: 20%; right: 20%; bottom: 8vmin; height: 1.6vmin; border-radius: 99px;
   background: rgba(255,255,255,0.2); overflow: hidden; }

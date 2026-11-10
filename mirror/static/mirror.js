@@ -502,12 +502,19 @@ function showPhoto(url) {
 }
 
 /* ---------- security cameras ---------- */
+let blinkRefresh = null;
 function showCameras(show) {
   const box = $("cams");
   const grid = $("cam-grid");
+  clearInterval(blinkRefresh);
   for (const img of grid.querySelectorAll("img")) img.removeAttribute("src"); // stop the streams
   grid.replaceChildren();
-  const cams = settings.cameras || [];
+  // Security cameras (live streams) and Blink cameras (pictures, or experimental live view)
+  const cams = [
+    ...(settings.cameras || []).map((c, i) => ({ name: c.name, src: () => `/api/cameras/${i}.mjpg?t=${Date.now()}` })),
+    ...(settings.blink_cameras || []).map((name, i) => ({ name, blink: i,
+      src: () => (settings.blink_live ? `/api/blink/${i}.mjpg?t=${Date.now()}` : `/api/blink/${i}.jpg?t=${Date.now()}`) })),
+  ];
   if (!show || !cams.length || PREVIEW) {
     box.hidden = true;
     if (show && !cams.length && !PREVIEW) showStatus("No cameras set up yet (app: Settings → Cameras)", 4000);
@@ -527,7 +534,8 @@ function showCameras(show) {
     img.onload = () => { loaded = true; wait.remove(); };
     img.onerror = () => { wait.textContent = "Can't reach this camera"; };
     setTimeout(() => { if (!loaded && wait.isConnected) wait.textContent = "Can't reach this camera. Check its address in the app"; }, 15000);
-    img.src = `/api/cameras/${i}.mjpg?t=${Date.now()}`;
+    img.src = cam.src();
+    if (cam.blink !== undefined) img.dataset.blink = cam.blink;
     const name = document.createElement("div");
     name.className = "cam-name";
     name.textContent = `📹 ${cam.name}`;
@@ -537,6 +545,28 @@ function showCameras(show) {
     grid.append(tile);
   });
   box.hidden = false;
+  // Blink pictures: reload every few seconds so new pictures show up (cheap: they come from the Pi).
+  if (!settings.blink_live && (settings.blink_cameras || []).length) {
+    blinkRefresh = setInterval(() => {
+      for (const img of grid.querySelectorAll("img[data-blink]")) img.src = `/api/blink/${img.dataset.blink}.jpg?t=${Date.now()}`;
+    }, 5000);
+  }
+}
+
+/* ---------- Blink motion pop-up ---------- */
+function blinkMotion(d) {
+  if (PREVIEW) return;
+  const i = (settings.blink_cameras || []).indexOf(d.camera);
+  if (i < 0) return;
+  $("motion-img").src = `/api/blink/${i}.jpg?t=${Date.now()}`;
+  const text = $("motion-text");
+  text.replaceChildren();
+  const b = document.createElement("b");
+  b.textContent = "Motion";
+  text.append(b, ` · ${d.camera} · ${d.time}`);
+  $("motion").hidden = false;
+  beep(880, 120);
+  later("motion", (d.seconds || 20) * 1000, () => { $("motion").hidden = true; });
 }
 
 /* ---------- teaching a gesture ---------- */
@@ -604,6 +634,7 @@ function connect() {
   on("settings", reloadSettings);
   on("cameras", (d) => showCameras(d.show));
   on("teach", teach);
+  on("blink_motion", blinkMotion);
   on("pair", showPairing);
   on("status", (d) => {
     if (!$("booth").hidden && d.text.startsWith("Photo ")) $("shot-label").textContent = d.text;

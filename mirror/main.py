@@ -85,6 +85,10 @@ class Mirror:
         """Show the security cameras on the screen (None = toggle). They hide again after a while."""
         self.cameras_shown = (not self.cameras_shown) if show is None else show
         seconds = int(((self.cfg.get("cameras") or {}).get("show_seconds")) or 60)
+        blink = getattr(self, "blink", None)
+        if self.cameras_shown and blink is not None and (self.cfg.get("blink") or {}).get("new_picture_on_show"):
+            for name in blink.camera_names():  # fresh Blink pictures (uses some battery)
+                threading.Thread(target=blink.snap, args=(name,), daemon=True).start()
         self.bus.emit("cameras", {"show": self.cameras_shown, "seconds": seconds})
         self._camera_timer = getattr(self, "_camera_timer", 0) + 1
         if self.cameras_shown and seconds > 0:
@@ -188,7 +192,7 @@ def main() -> None:
             camera.start()
             mirror.booth = PhotoBooth(camera, cfg["photobooth"], photos_dir, bus.emit)
             watcher = GestureWatcher(camera, cfg["gestures"], str(model), on_fire=mirror.on_gesture,
-                                     on_progress=mirror.on_hold, custom=custom, teacher=teacher)
+                                     on_progress=mirror.on_hold, custom=custom, teacher=teacher, blink=blink)
             mirror.watcher = watcher
             watcher.start()
         except Exception as e:
@@ -209,6 +213,11 @@ def main() -> None:
     apply_rotation(cfg)  # also done by the kiosk when the desktop starts
     alexa = AlexaVoice(cfg.get("alexa") or {}, int(display["port"]), resolve(".cache/alexa.json"))
     alexa.start()
+    from .blink import BlinkService
+
+    blink = BlinkService(cfg, resolve(".secrets/blink.json"), bus.emit, on_motion=power.activity)
+    blink.start()
+    mirror.blink = blink
     app = create_app(cfg, bus, photos_dir, mirror, camera=camera, version=code_version(), problems=problems,
                      config_path=resolve(args.config) if args.config else None, start_background=True, alexa=alexa,
                      custom=custom, teacher=teacher)

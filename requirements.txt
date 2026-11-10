@@ -11,3 +11,4 @@ pillow-heif>=0.18
 feedparser>=6
 ruamel.yaml>=0.18
 fauxmo>=0.8
+blinkpy>=0.25

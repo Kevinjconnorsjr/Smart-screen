@@ -242,6 +242,7 @@ def create_remote(app_state) -> Blueprint:
             "teaching": dict(teach_state),
             "devices": {d: on for d, on in st.mirror.devices.state.items()},
             "cameras_shown": st.mirror.cameras_shown,
+            "blink": st.blink.status() if st.blink else None,
             "cloud": st.cloud.status() if st.cloud else None,
             "alexa": st.alexa.status() if st.alexa else None,
             "version": st.version,
@@ -441,6 +442,51 @@ def create_remote(app_state) -> Blueprint:
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)}), 502
         return jsonify({"ok": True, "on": on})
+
+    # ---------- Blink ----------
+    def blink_or_404():
+        if st.blink is None:
+            abort(404)
+        return st.blink
+
+    @bp.get("/api/remote/blink")
+    def blink_status():
+        return jsonify(st.blink.status() if st.blink else {"state": "unavailable", "error": "", "cameras": []})
+
+    @bp.post("/api/remote/blink/login")
+    def blink_login():
+        body = request.get_json(silent=True) or {}
+        if not body.get("username") or not body.get("password"):
+            return jsonify({"ok": False, "error": "Type your Blink email and password"}), 400
+        b = blink_or_404()
+        state = b.login(str(body["username"]), str(body["password"]))
+        return jsonify({"ok": state in ("needs_code", "signed_in"), "state": state, "error": b.error})
+
+    @bp.post("/api/remote/blink/verify")
+    def blink_verify():
+        b = blink_or_404()
+        state = b.verify(str((request.get_json(silent=True) or {}).get("code", "")))
+        if state == "signed_in":
+            st.bus.emit("settings", {})
+        return jsonify({"ok": state == "signed_in", "state": state, "error": b.error})
+
+    @bp.post("/api/remote/blink/logout")
+    def blink_logout():
+        blink_or_404().logout()
+        st.bus.emit("settings", {})
+        return jsonify({"ok": True})
+
+    @bp.post("/api/remote/blink/<int:index>/snap")
+    def blink_snap(index: int):
+        b = blink_or_404()
+        names = b.camera_names()
+        if not 0 <= index < len(names):
+            abort(404)
+        try:
+            b.snap(names[index])
+        except Exception as e:
+            return jsonify({"ok": False, "error": f"Blink didn't take a picture: {e}"}), 502
+        return jsonify({"ok": True})
 
     @bp.get("/api/remote/cameras")
     def cameras_list():

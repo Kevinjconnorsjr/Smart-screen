@@ -67,7 +67,7 @@ def _restart_soon() -> None:
 def create_app(cfg: dict, bus: EventBus, photos_dir: Path, mirror, camera=None, version: str = "dev",
                config_path: Path | None = None, secrets_dir: Path | None = None, restart_soon=_restart_soon,
                problems: list[str] | None = None, start_background: bool = False, alexa=None,
-               custom=None, teacher=None) -> Flask:
+               custom=None, teacher=None, blink=None) -> Flask:
     app = Flask(__name__, static_folder=str(STATIC), static_url_path="/static")
     app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 ** 3  # photo and video uploads from the phone
 
@@ -124,7 +124,7 @@ def create_app(cfg: dict, bus: EventBus, photos_dir: Path, mirror, camera=None, 
         backgrounds=backgrounds, config_path=config_path or ROOT / "config.yaml",
         secrets_dir=secrets_dir or ROOT / ".secrets", restart_soon=restart_soon,
         on_settings_changed=on_settings_changed, problems=problems or [], cloud=cloud, alexa=alexa,
-        cameras=cameras, custom=custom, teacher=teacher,
+        cameras=cameras, custom=custom, teacher=teacher, blink=blink,
     )
     app.register_blueprint(create_remote(state))
     app.extensions["smart_screen"] = state
@@ -166,7 +166,37 @@ def create_app(cfg: dict, bus: EventBus, photos_dir: Path, mirror, camera=None, 
             "gesture_labels": custom.labels(),
             "action_labels": mirror.action_labels(),
             "cameras": [{"name": c.get("name", f"Camera {i + 1}")} for i, c in enumerate(cameras.list())],
+            "blink_cameras": blink.camera_names() if blink else [],
+            "blink_live": bool(section("blink").get("live_view")),
         })
+
+    blink_relays: dict = {}
+
+    def blink_name(index: int) -> str:
+        names = blink.camera_names() if blink else []
+        if not 0 <= index < len(names):
+            abort(404)
+        return names[index]
+
+    @app.get("/api/blink/<int:index>.jpg")
+    def blink_picture(index: int):
+        jpg = blink.picture(blink_name(index))
+        if not jpg:
+            abort(404)
+        return Response(jpg, mimetype="image/jpeg", headers={"Cache-Control": "no-cache"})
+
+    @app.get("/api/blink/<int:index>.mjpg")
+    def blink_live(index: int):
+        name = blink_name(index)
+        if not cameras.ffmpeg:
+            abort(404)
+        from .cameras import CameraRelay
+
+        relay = blink_relays.get(name)
+        if relay is None:
+            relay = blink_relays[name] = CameraRelay(lambda: blink.live_url(name), lambda: cfg, cameras.ffmpeg)
+        return Response(relay.stream(), mimetype="multipart/x-mixed-replace; boundary=frame",
+                        headers={"Cache-Control": "no-cache"})
 
     @app.get("/api/cameras/<int:index>.mjpg")
     def camera_stream(index: int):

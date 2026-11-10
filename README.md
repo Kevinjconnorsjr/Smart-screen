@@ -260,8 +260,28 @@ Add them in **Settings → Cameras** with a name and an address:
 - **Any camera in Home Assistant**: `ha:camera.front_door` (uses Settings → Connections → Home Assistant).
 - **A web address** that shows an MJPEG stream or a snapshot `.jpg`.
 
-Ring, Blink, Nest and Arlo only stream through their own cloud, so they can't be shown directly. If one of them works
-in your Home Assistant, try `ha:camera.…`. Camera passwords stay on the Pi; the app shows them as dots.
+Blink is supported separately (see [Blink cameras](#blink-cameras)). Ring, Nest and Arlo only stream through their own
+cloud, so they can't be shown directly. If one of them works in your Home Assistant, try `ha:camera.…`. Camera passwords stay on the Pi; the app shows them as dots.
+
+## Blink cameras
+
+Blink doesn't offer a normal video stream, so Blink cameras work a little differently from other cameras:
+
+- **Pictures:** when the cameras are shown on the screen (gesture, Alexa or the app), each Blink camera's newest
+  picture appears, refreshed every few seconds. Turn on **New pictures when cameras are shown** to have every camera
+  take a fresh one first (uses some battery).
+- **Motion pop-ups:** when a Blink camera records motion, its picture pops up in the corner of the screen for 20 seconds
+  (adjustable) with a soft chime, and the screen wakes. Blink only records motion while your system is **armed** in
+  the Blink app. The screen checks every 60 seconds, so a pop-up can arrive up to about a minute after the motion.
+- **New picture:** in the app, **📸 New** next to a camera asks it for a fresh picture.
+- **Live video (experimental):** turn on **Live video** to show live video instead of pictures. It uses Blink's
+  unofficial live stream (through [blinkpy](https://github.com/fronzbot/blinkpy), the library Home Assistant uses),
+  so it may stop working if Blink changes something, and it drains battery cameras quickly. Blink Minis are plugged in,
+  so battery isn't a concern for them.
+
+**Connecting:** app → **Settings → Blink cameras → Sign in** with your Blink email and password, then type the code Blink
+emails or texts you. Your password is only used to sign in; the Pi keeps just Blink's access key
+(`.secrets/blink.json`). If Blink ever asks you to sign in again, the app shows it. **Sign out** removes the key.
 
 ## Teach your own gestures
 
